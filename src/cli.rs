@@ -1,7 +1,7 @@
 use clap::{Arg, Command};
 
 pub fn app() -> Command {
-    Command::new("${APP}")
+    Command::new("ordiseq")
         .version(env!("CARGO_PKG_VERSION"))
         .author(env!("CARGO_PKG_AUTHORS"))
         .about(env!("CARGO_PKG_DESCRIPTION"))

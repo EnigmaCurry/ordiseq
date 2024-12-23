@@ -1,34 +1,64 @@
-# rust-cli-template
+# ordiseq
 
-This is my Rust template for new CLI apps.
+[![Crates.io](https://img.shields.io/crates/v/ordiseq?color=blue
+)](https://crates.io/crates/ordiseq)
+[![Coverage](https://img.shields.io/badge/Coverage-Report-purple)](https://EnigmaCurry.github.io/ordiseq/coverage/master/)
 
-## Features
 
- * [Just](https://github.com/casey/just) enabled project build targets.
- * [Clap](https://docs.rs/clap/latest/clap/) CLI argument parser.
- * Bash / Fish / Zsh shell (tab)
-   [completion](https://docs.rs/clap_complete/latest/clap_complete/).
- * GitHub actions for tests and releases.
- * Test coverage report published to GitHub pages.
- * Publishing to crates.io.
+## Install
 
-## Use this template
+[Download the latest release for your platform.](https://github.com/EnigmaCurry/ordiseq/releases)
 
- * [Create a new repository using this template](https://github.com/new?template_name=rust-cli-template&template_owner=EnigmaCurry).
- * The `Repository name` you choose will also be used as your app name.
- * Go to the repository `Settings` page:
-   * Find `Actions`.
-   * Find `General`.
-   * Find `Workflow Permissions`.
-   * Set `Read and Write permissions`.
-   * Click `Save`.
- * Clone your new repository to your workstation.
- 
-## Render the template
+Or install via cargo ([crates.io/crates/ordiseq](https://crates.io/crates/ordiseq)):
 
 ```
-./setup.sh
+cargo install ordiseq
 ```
- 
-This will render the template into the project root and then
-self-destruct this README.md and the template.
+
+### Tab completion
+
+To install tab completion support, put this in your `~/.bashrc` (assuming you use Bash):
+
+```
+### Bash completion for ordiseq (Put this in ~/.bashrc)
+source <(ordiseq completions bash)
+```
+
+If you don't like to type out the full name `ordiseq`, you can make
+a shorter alias (`h`), as well as enable tab completion for the alias
+(`h`):
+
+```
+### Alias ordiseq as h (Put this in ~/.bashrc):
+alias h=ordiseq
+complete -F _ordiseq -o bashdefault -o default h
+```
+
+Completion for Zsh and/or Fish has also been implemented, but the
+author has not tested this:
+
+```
+### Zsh completion for ordiseq (Put this in ~/.zshrc):
+autoload -U compinit; compinit; source <(ordiseq completions zsh)
+
+### Fish completion for ordiseq (Put this in ~/.config/fish/config.fish):
+ordiseq completions fish | source
+```
+
+## Usage
+
+```
+$ ordiseq
+
+Usage: ordiseq [OPTIONS] [COMMAND]
+
+Commands:
+
+Options:
+  -h, --help                  Print help
+  -V, --version               Print version
+```
+
+## Development
+
+See [DEVELOPMENT.md](DEVELOPMENT.md)

@@ -1,15 +1,15 @@
 [package]
-name = "${APP}"
-description = "${APP} is a CLI tool"
+name = "ordiseq"
+description = "ordiseq is a CLI tool"
 version = "0.1.0"
 edition = "2021"
-repository = "https://github.com/${GIT_USERNAME}/${APP}"
-homepage = "https://github.com/${GIT_USERNAME}/${APP}"
+repository = "https://github.com/EnigmaCurry/ordiseq"
+homepage = "https://github.com/EnigmaCurry/ordiseq"
 license = "MIT"
 keywords = []
 categories = ["command-line-utilities"]
 readme = "README.md"
-documentation = "https://docs.rs/${APP}"
+documentation = "https://docs.rs/ordiseq"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage,coverage_nightly)'] }

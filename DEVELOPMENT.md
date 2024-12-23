@@ -20,9 +20,9 @@ rustup-init ## just press enter when prompted for default selection
 ## Clone source repository
 
 ```
-git clone git@github.com:${GIT_USERNAME}/${APP}.git \
-  ~/git/vendor/${GIT_USERNAME}/${APP}
-cd ~/git/vendor/${GIT_USERNAME}/${APP}
+git clone git@github.com:EnigmaCurry/ordiseq.git \
+  ~/git/vendor/EnigmaCurry/ordiseq
+cd ~/git/vendor/EnigmaCurry/ordiseq
 ```
 
 ## Install development dependencies
@@ -32,7 +32,7 @@ cargo install just
 just deps
 ```
 
-## Build and run development ${APP}
+## Build and run development ordiseq
 
 ```
 just run help
@@ -49,18 +49,18 @@ just build --release
 
 ```
 ## Add this to ~/.bashrc or equivalent:
-alias ${APP}='just -f ~/git/vendor/${GIT_USERNAME}/${APP}/Justfile run'
-alias h=${APP}
+alias ordiseq='just -f ~/git/vendor/EnigmaCurry/ordiseq/Justfile run'
+alias h=ordiseq
 ```
 
-Now you can run `${APP}`, or simply `h`, from any directory, with
+Now you can run `ordiseq`, or simply `h`, from any directory, with
 any arguments, and it will automatically rebuild from source, and then
 run it with those args.
 
 ## Testing
 
 This project has incomplete testing. [See the latest coverage
-report](https://${GIT_USERNAME}.github.io/${APP}/coverage/master/).
+report](https://EnigmaCurry.github.io/ordiseq/coverage/master/).
 
 ## Run tests
 
