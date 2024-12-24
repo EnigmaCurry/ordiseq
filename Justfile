@@ -119,7 +119,7 @@ clean-profile:
 # Build and serve documentation site
 doc: deps
     RUST_LOG=warn live-server target/doc --open=ordiseq & \
-    cargo watch -s 'cargo doc --no-deps'
+    cargo watch -s 'cargo doc'
 
 # example-circle-of-fifths:
 #     cargo run --example circle_of_fifths
