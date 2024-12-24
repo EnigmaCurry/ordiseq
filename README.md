@@ -51,3 +51,25 @@ Run an example:
 ```
 just run --example test
 ```
+
+
+## Credits
+
+ * This library includes data from [The Scale
+   Omnibus](https://www.saxopedia.com/the-scale-omnibus) - a
+   collection of musical scales by Francesco Balena - (the link may
+   not be valid anymore - see [wayback
+   link](https://web.archive.org/web/20200220013047/http://www.saxopedia.com/the-scale-omnibus/)).
+
+ * The scales are directly copied from
+   [ioanszilagyi/scale_omnibus](https://github.com/ioanszilagyi/scale_omnibus)
+   compiled by Corey Hoard - this is a YAML translation of The Scale
+   Omnibus v1.02.
+
+ * This library includes reexports from the following crates:
+
+  * [kord](https://crates.io/crates/kord) (klib) - used for Pitches,
+    Notes, Chords and more. Created by Aaron Roney.
+
+
+

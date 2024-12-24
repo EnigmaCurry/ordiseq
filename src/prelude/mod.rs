@@ -1,10 +1,15 @@
 #![allow(unused_imports)]
 
-pub use crate::util::log::setup_log;
+//Exports from std
 pub use log::{debug, error, info, trace, warn};
 pub use std::str::FromStr;
 pub use std::time::Duration;
 
+//Exports from this crate:
+pub use crate::scales::*;
+pub use crate::util::log::setup_log;
+
+//Re-exports from other crates:
 pub use klib::core::base::Parsable;
 pub use klib::core::chord::*;
 pub use klib::core::interval::*;

@@ -22,6 +22,9 @@ deps:
     @if ! command -v cargo-llvm-cov >/dev/null; then \
         cargo install --locked cargo-llvm-cov; \
     fi
+    @if ! command -v live-server >/dev/null; then \
+        cargo install --locked live-server; \
+    fi
 
 # Build and run binary + args
 [no-cd]
@@ -112,6 +115,11 @@ clean *args: clean-profile
 # Clean profile artifacts only
 clean-profile:
     rm -rf *.profraw *.profdata
+
+# Build and serve documentation site
+doc: deps
+    RUST_LOG=warn live-server target/doc --open=ordiseq & \
+    cargo watch -s 'cargo doc --no-deps'
 
 # example-circle-of-fifths:
 #     cargo run --example circle_of_fifths
