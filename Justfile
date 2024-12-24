@@ -3,7 +3,6 @@ set export
 current_dir := `pwd`
 RUST_LOG := "debug"
 RUST_BACKTRACE := "1"
-GIT_REMOTE := "origin"
 
 # print help for Just targets
 help:
@@ -11,61 +10,51 @@ help:
 
 # Install dependencies
 deps:
-    @echo
-    @echo "Installing dependencies:"
-    @echo
-    cargo install --locked cargo-nextest
-    cargo install --locked git-cliff
-    cargo install --locked cargo-llvm-cov
-    @echo
-    @echo "All dependencies have been installed."
-    @echo
-    @echo 'Type `just run` to build and run the development binary, and specify any args after that.'
-    @echo 'For example: `just run help`'
-    @echo
-
-# Install binary dependencies (gh-actions)
-bin-deps:
-    cargo binstall --no-confirm cargo-nextest
-    cargo binstall --no-confirm git-cliff
-    cargo binstall --no-confirm cargo-llvm-cov
+    @if ! command -v cargo-watch >/dev/null; then \
+        cargo install --locked cargo-watch; \
+    fi
+    @if ! command -v cargo-nextest >/dev/null; then \
+        cargo install --locked cargo-nextest; \
+    fi
+    @if ! command -v git-cliff >/dev/null; then \
+        cargo install --locked git-cliff; \
+    fi
+    @if ! command -v cargo-llvm-cov >/dev/null; then \
+        cargo install --locked cargo-llvm-cov; \
+    fi
 
 # Build and run binary + args
 [no-cd]
 run *args:
-    cargo run --manifest-path "${current_dir}/Cargo.toml" -- {{args}}
+    cargo run --manifest-path "${current_dir}/Cargo.toml" {{args}}
 
 # Build + args
 build *args:
     RUSTFLAGS="-D warnings" cargo build {{args}}
 
-# Build continuously on file change
-build-watch *args:
-    cargo watch -s "clear && cargo build {{args}}"
-
 # Run tests
-test *args:
+test *args: deps
     cargo nextest run {{args}}
 
 # Run tests continuously on file change
-test-watch *args:
+test-watch *args: deps
     cargo watch -s "clear && cargo nextest run {{args}}"
 
 # Run tests with verbose logging
-test-verbose *args:
+test-verbose *args: deps
     RUST_TEST_THREADS=1 cargo nextest run --nocapture {{args}}
 
 # Run tests continuously with verbose logging
-test-watch-verbose *args:
+test-watch-verbose *args: deps
     RUST_TEST_THREADS=1 cargo watch -s "clear && cargo nextest run --nocapture -- {{args}}"
 
 # Build coverage report
-test-coverage *args: clean
+test-coverage *args: deps clean
     cargo llvm-cov nextest {{args}}  && \
     cargo llvm-cov {{args}} report --html
 
 # Continuously build coverage report and serve HTTP report
-test-coverage-watch *args:
+test-coverage-watch *args: deps
     cargo watch -s "clear && just test-coverage {{args}} && cd target/llvm-cov/html && python -m http.server"
 
 # Run Clippy to report and fix lints
@@ -73,7 +62,7 @@ clippy *args:
     RUSTFLAGS="-D warnings" cargo clippy {{args}} --color=always 2>&1 --tests | less -R
 
 # Bump release version and create PR branch
-bump-version:
+bump-version: deps
     @if [ -n "$(git status --porcelain)" ]; then echo "## Git status is not clean. Commit your changes before bumping version."; exit 1; fi
     @if [ "$(git symbolic-ref --short HEAD)" != "master" ]; then echo "## You may only bump the version from the master branch."; exit 1; fi
     source ./funcs.sh; \
@@ -100,7 +89,7 @@ bump-version:
     echo "You should push this branch and create a PR for it."
 
 # Tag and release a new version from master branch
-release:
+release: deps
     @if [ -n "$(git status --porcelain)" ]; then echo "## Git status is not clean. Commit your changes before bumping version."; exit 1; fi
     @if [ "$(git symbolic-ref --short HEAD)" != "master" ]; then echo "## You may only release the master branch."; exit 1; fi
     git remote update;
@@ -118,7 +107,23 @@ release:
 # Clean all artifacts
 clean *args: clean-profile
     cargo clean {{args}}
+    rm -f *.mid
 
 # Clean profile artifacts only
 clean-profile:
     rm -rf *.profraw *.profdata
+
+# example-circle-of-fifths:
+#     cargo run --example circle_of_fifths
+
+# example-circle-of-fifths-rhythm:
+#     cargo run --example circle_of_fifths_rhythm
+
+# example-scale:
+#     cargo run --example scale
+
+# example-scale-omnibus:
+#     cargo run --example scale_omnibus
+
+# example-chord-progression:
+#     cargo run --example chord_progression
