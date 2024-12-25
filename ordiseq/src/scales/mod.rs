@@ -1,22 +1,22 @@
 //use klib::core::chord::Chord;
-use klib::core::named_pitch::NamedPitch;
+//use klib::core::named_pitch::NamedPitch;
 // use serde::Deserialize;
 //use serde_json::json;
 // use std::collections::HashMap;
 // use std::str::FromStr;
-use std::sync::OnceLock;
+//use std::sync::OnceLock;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Scale {
-    pub name: String,
-    pub intervals: Option<Vec<u8>>,
-    pub intervals_ascending: Option<Vec<u8>>,
-    pub intervals_descending: Option<Vec<u8>>,
-    pub notes: Option<Vec<u8>>,
-    pub notes_ascending: Option<Vec<u8>>,
-    pub notes_descending: Option<Vec<u8>>,
-    pub origin: Option<String>,
-}
+// #[derive(Debug, Clone, PartialEq, Eq)]
+// pub struct Scale {
+//     pub name: String,
+//     pub intervals: Option<Vec<u8>>,
+//     pub intervals_ascending: Option<Vec<u8>>,
+//     pub intervals_descending: Option<Vec<u8>>,
+//     pub notes: Option<Vec<u8>>,
+//     pub notes_ascending: Option<Vec<u8>>,
+//     pub notes_descending: Option<Vec<u8>>,
+//     pub origin: Option<String>,
+// }
 
 // impl Scale {
 //     pub fn all_notes(&self, duration: f64) -> Chord {
@@ -33,54 +33,54 @@ pub struct Scale {
 //     }
 // }
 
-static SCALES: OnceLock<Vec<Scale>> = OnceLock::new();
+// static SCALES: OnceLock<Vec<Scale>> = OnceLock::new();
 
-fn load_scales() -> &'static Vec<Scale> {
-    SCALES.get_or_init(|| {
-        // Load the YAML data at compile time
-        const SCALES_YAML: &str = include_str!("../../data/scales.yaml");
+// fn load_scales() -> &'static Vec<Scale> {
+//     SCALES.get_or_init(|| {
+//         // Load the YAML data at compile time
+//         const SCALES_YAML: &str = include_str!("../../data/scales.yaml");
 
-        // Parse the YAML data into a vector of Scale structs
-        let scales: Vec<serde_yaml::Value> =
-            serde_yaml::from_str(SCALES_YAML).expect("Invalid YAML format");
+//         // Parse the YAML data into a vector of Scale structs
+//         let scales: Vec<serde_yaml::Value> =
+//             serde_yaml::from_str(SCALES_YAML).expect("Invalid YAML format");
 
-        scales
-            .into_iter()
-            .filter_map(|item| {
-                // Check for required fields and skip entries with ascending/descending keys
-                if item.get("intervals_ascending").is_some()
-                    || item.get("notes_ascending").is_some()
-                {
-                    return None;
-                }
+//         scales
+//             .into_iter()
+//             .filter_map(|item| {
+//                 // Check for required fields and skip entries with ascending/descending keys
+//                 if item.get("intervals_ascending").is_some()
+//                     || item.get("notes_ascending").is_some()
+//                 {
+//                     return None;
+//                 }
 
-                let name = item.get("name")?.as_str()?.to_string();
-                let intervals = item
-                    .get("intervals")?
-                    .as_sequence()?
-                    .iter()
-                    .filter_map(|i| i.as_u64().map(|n| n as u8))
-                    .collect::<Vec<u8>>();
-                let notes = item
-                    .get("notes")?
-                    .as_sequence()?
-                    .iter()
-                    .filter_map(|n| n.as_u64().and_then(|n| NamedPitch::from_repr(n as usize)))
-                    .collect::<Vec<NamedPitch>>();
-                let origin = item
-                    .get("origin")
-                    .and_then(|o| o.as_str().map(|s| s.to_string()));
+//                 let name = item.get("name")?.as_str()?.to_string();
+//                 let intervals = item
+//                     .get("intervals")?
+//                     .as_sequence()?
+//                     .iter()
+//                     .filter_map(|i| i.as_u64().map(|n| n as u8))
+//                     .collect::<Vec<u8>>();
+//                 let notes = item
+//                     .get("notes")?
+//                     .as_sequence()?
+//                     .iter()
+//                     .filter_map(|n| n.as_u64().and_then(|n| NamedPitch::from_repr(n as usize)))
+//                     .collect::<Vec<NamedPitch>>();
+//                 let origin = item
+//                     .get("origin")
+//                     .and_then(|o| o.as_str().map(|s| s.to_string()));
 
-                Some(Scale {
-                    name,
-                    intervals,
-                    pitches: notes,
-                    origin,
-                })
-            })
-            .collect()
-    })
-}
+//                 Some(Scale {
+//                     name,
+//                     intervals,
+//                     pitches: notes,
+//                     origin,
+//                 })
+//             })
+//             .collect()
+//     })
+// }
 
 // pub fn get_scale(name: &str) -> Result<&Scale, OrdiseqError> {
 //     load_scales()

@@ -3,7 +3,7 @@
 ## https://www.saxopedia.com/the-scale-omnibus
 ## copied to YAML by Corey Hoard
 ## https://github.com/ioanszilagyi/scale_omnibus
-## Freely republished by permission.
+## This file is freely reproducible with proper attribution.
 - intervals: [2, 2, 2, 1, 2, 1, 2]
   name: Acoustic
   notes: [0, 2, 4, 6, 7, 9, 10]

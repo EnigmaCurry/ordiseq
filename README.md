@@ -4,26 +4,30 @@
 )](https://crates.io/crates/ordiseq)
 [![Coverage](https://img.shields.io/badge/Coverage-Report-purple)](https://EnigmaCurry.github.io/ordiseq/coverage/master/)
 
-ordiseq is a MIDI sequencer library for Rust.
+ordiseq is a MIDI sequencer library for Rust, as well as a collection
+of related sub-crates:
 
+ * [ordiseq](ordiseq) - a MIDI sequenc_er.
+ * [scale_omnibus](scale_omnibus) - a library of musical scales.
+ 
 ## Development
 
 ### Install host dependencies
 
 ```
 # Fedora:
-sudo dnf install git openssh rustup
+sudo dnf install git openssh rustup just
 sudo dnf install @development-tools @development-libs
 ```
 
 ### Install Rust and cargo
 
 ```
-rustup-init ## just press enter when prompted for default selection
+rustup-init  ## Enter the default prompts
 . "$HOME/.cargo/env"
 ```
 
-### Clone source repository
+### Clone the source repository
 
 ```
 git clone git@github.com:EnigmaCurry/ordiseq.git \
@@ -31,10 +35,9 @@ git clone git@github.com:EnigmaCurry/ordiseq.git \
 cd ~/git/vendor/EnigmaCurry/ordiseq
 ```
 
-### Install development dependencies
+### Install the development dependencies
 
 ```
-cargo install just
 just deps
 ```
 
@@ -55,21 +58,22 @@ just run --example test
 
 ## Credits
 
- * This library includes data from [The Scale
-   Omnibus](https://www.saxopedia.com/the-scale-omnibus) - a
-   collection of musical scales by Francesco Balena - (the link may
-   not be valid anymore - see [wayback
-   link](https://web.archive.org/web/20200220013047/http://www.saxopedia.com/the-scale-omnibus/)).
+ * [scale_omnibus](scale_omnibus) includes data from [The Scale
+   Omnibus](https://www.saxopedia.com/the-scale-omnibus) - a massive
+   book of musical scales by Francesco Balena -
+   ([wayback](https://web.archive.org/web/20200220013047/http://www.saxopedia.com/the-scale-omnibus/)).
 
- * The scales are directly copied from
-   [ioanszilagyi/scale_omnibus](https://github.com/ioanszilagyi/scale_omnibus)
-   compiled by Corey Hoard - this is a YAML translation of The Scale
-   Omnibus v1.02.
+   * The scale data was copied from the book (v1.02) by Corey Hoard
+     and saved as a YAML file published at
+     [ioanszilagyi/scale_omnibus](https://github.com/ioanszilagyi/scale_omnibus)
+     and reproduced in
+     [scale_omnibus/data/scales.yaml](scale_omnibus/data/scales.yaml)
 
- * This library includes reexports from the following crates:
+ * [ordiseq](ordiseq) includes reexports from the following crates:
 
-  * [kord](https://crates.io/crates/kord) (klib) - used for Pitches,
-    Notes, Chords and more. Created by Aaron Roney.
-
-
-
+   * [kord](https://crates.io/crates/kord) (klib) - used for Pitches,
+     Notes, Chords and more. Created by Aaron Roney.
+ 
+ * Many other libraries from the Rust ecosystem have been used as
+   listed in each crate's Cargo.toml. Thank you to all the library
+   authors and supporters.
