@@ -41,28 +41,28 @@ build *args:
     RUSTFLAGS="-D warnings" cargo build {{args}}
 
 # Run tests
-test *args: deps
+test *args: 
     cargo nextest run {{args}}
 
 # Run tests continuously on file change
-test-watch *args: deps
+test-watch *args: 
     cargo watch -s "clear && cargo nextest run {{args}}"
 
 # Run tests with verbose logging
-test-verbose *args: deps
+test-verbose *args:
     RUST_TEST_THREADS=1 cargo nextest run --nocapture {{args}}
 
 # Run tests continuously with verbose logging
-test-watch-verbose *args: deps
+test-watch-verbose *args:
     RUST_TEST_THREADS=1 cargo watch -s "clear && cargo nextest run --nocapture -- {{args}}"
 
 # Build coverage report
-test-coverage *args: deps clean
+test-coverage *args: clean
     cargo llvm-cov nextest {{args}}  && \
     cargo llvm-cov {{args}} report --html
 
 # Continuously build coverage report and serve HTTP report
-test-coverage-watch *args: deps
+test-coverage-watch *args: 
     cargo watch -s "clear && just test-coverage {{args}} && cd target/llvm-cov/html && python -m http.server"
 
 # Run Clippy to report and fix lints
@@ -70,7 +70,7 @@ clippy *args:
     RUSTFLAGS="-D warnings" cargo clippy {{args}} --color=always 2>&1 --tests | less -R
 
 # Bump release version and create PR branch
-bump-version: deps
+bump-version: 
     @if [ -n "$(git status --porcelain)" ]; then echo "## Git status is not clean. Commit your changes before bumping version."; exit 1; fi
     @if [ "$(git symbolic-ref --short HEAD)" != "master" ]; then echo "## You may only bump the version from the master branch."; exit 1; fi
     source ./funcs.sh; \
@@ -97,7 +97,7 @@ bump-version: deps
     echo "You should push this branch and create a PR for it."
 
 # Tag and release a new version from master branch
-release: deps
+release: 
     @if [ -n "$(git status --porcelain)" ]; then echo "## Git status is not clean. Commit your changes before bumping version."; exit 1; fi
     @if [ "$(git symbolic-ref --short HEAD)" != "master" ]; then echo "## You may only release the master branch."; exit 1; fi
     git remote update;
@@ -122,7 +122,7 @@ clean-profile:
     rm -rf *.profraw *.profdata
 
 # Build and serve documentation site
-doc: deps
+doc: 
     RUST_LOG=warn live-server target/doc --open=ordiseq & \
     cargo watch -s 'cargo doc'
 
