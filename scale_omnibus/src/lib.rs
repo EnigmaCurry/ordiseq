@@ -13,7 +13,7 @@
 //!
 //! - More than 1000 musical scales.
 //! - Retrieve scales directly by name.
-//! - Search for scales based on criteria such as origin, name
+//! - Search for scales based on any criteria, such as origin, name
 //! substring match, or the number of intervals.
 //!
 //! ## Key Structures and Functions
@@ -275,7 +275,7 @@ pub fn find_scales_by_origin(origin: &str) -> Result<Vec<Scale>, ScaleOmnibusErr
 ///
 /// # Returns
 ///
-/// A `Vec<Scale>` containing the scales that have both ascending and descending intervals defined.
+/// A `Vec<Scale>` containing the scales that have different ascending and descending intervals defined.
 ///
 /// # Example
 /// ```rust
@@ -446,7 +446,7 @@ mod tests {
 
         assert!(
             !filtered_scales.is_empty(),
-            "No scales found with both ascending and descending intervals"
+            "No scales found with different ascending and descending intervals"
         );
 
         for scale in &filtered_scales {

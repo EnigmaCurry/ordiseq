@@ -26,6 +26,11 @@ deps:
         cargo install --locked live-server; \
     fi
 
+# Install binary dependencies (gh-actions)
+bin-deps:
+    cargo binstall --no-confirm cargo-nextest
+    cargo binstall --no-confirm cargo-llvm-cov
+
 # Build and run binary + args
 [no-cd]
 run *args:
