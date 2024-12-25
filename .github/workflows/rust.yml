@@ -17,6 +17,10 @@ jobs:
     - name: Update Rust stable
       run: rustup toolchain install stable
 
+    # Install system dependencies
+    - name: Install host packages
+      run: sudo apt-get install libasound2-dev
+
     - name: Checkout code
       uses: actions/checkout@v4
 
