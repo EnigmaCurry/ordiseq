@@ -1,6 +1,6 @@
 [package]
 name = "scale_omnibus"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "A library of musical scales"
 repository = "https://github.com/EnigmaCurry/ordiseq"
