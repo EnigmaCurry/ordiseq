@@ -2,6 +2,10 @@
 name = "scale_omnibus"
 version = "0.1.0"
 edition = "2021"
+repository = "https://github.com/EnigmaCurry/ordiseq"
+homepage = "https://github.com/EnigmaCurry/ordiseq"
+license = "MIT"
+documentation = "https://docs.rs/ordiseq/latest/scale_omnibus"
 
 [dependencies]
 serde = { version = "1.0.216", features = ["derive"] }
