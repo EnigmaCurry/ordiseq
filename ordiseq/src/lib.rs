@@ -3,7 +3,7 @@
 //! [![Latest Version](https://img.shields.io/crates/v/ordiseq.svg)](https://crates.io/crates/ordiseq)
 //! [![Rust Documentation](https://docs.rs/ordiseq/badge.svg)](https://docs.rs/ordiseq)
 //!
-//! _ordiseq_ is an experimental MIDI sequencer library for Rust.
+//! ALPHA: _ordiseq_ is an experimental MIDI sequencer library for Rust.
 //!
 //! ## Features
 //!
