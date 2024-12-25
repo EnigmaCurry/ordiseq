@@ -1,12 +1,12 @@
 [package]
 name = "scale_omnibus"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "A library of musical scales"
 repository = "https://github.com/EnigmaCurry/ordiseq"
 homepage = "https://github.com/EnigmaCurry/ordiseq"
 license = "MIT"
-documentation = "https://docs.rs/ordiseq/latest/scale_omnibus"
+documentation = "https://docs.rs/scale_omnibus"
 
 [dependencies]
 serde = { version = "1.0.216", features = ["derive"] }

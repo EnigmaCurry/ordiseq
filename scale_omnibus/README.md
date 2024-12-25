@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/scale_omnibus?color=blue
 )](https://crates.io/crates/scale_omnibus)
-[![Docs](https://img.shields.io/badge/Docs-red)](https://enigmacurry.github.io/scale_omnibus/coverage/master/)
+[![Docs](https://img.shields.io/badge/Docs-red)](https://docs.rs/scale_omnibus)
 [![Coverage](https://img.shields.io/badge/Coverage-Report-purple)](https://enigmacurry.github.io/scale_omnibus/coverage/master/)
 [![Matrix chat](https://img.shields.io/badge/Matrix-Join_Chat-%234fb99a)](https://matrix.to/#/#blog.rymcg.tech:enigmacurry.com)
 
