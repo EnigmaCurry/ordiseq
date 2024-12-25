@@ -14,8 +14,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Update Rust stable
-      run: rustup toolchain install stable
+    - name: Update Rust nightly
+      run: rustup toolchain install nightly && rustup default nightly
 
     # Install system dependencies
     - name: Install host packages
