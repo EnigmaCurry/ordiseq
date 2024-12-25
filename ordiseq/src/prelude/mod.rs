@@ -15,6 +15,7 @@ pub use klib::core::chord::*;
 pub use klib::core::interval::*;
 pub use klib::core::known_chord::*;
 pub use klib::core::modifier::*;
+pub use klib::core::named_pitch::*;
 pub use klib::core::note::*;
 pub use klib::core::octave::*;
 pub use klib::core::parser::*;
