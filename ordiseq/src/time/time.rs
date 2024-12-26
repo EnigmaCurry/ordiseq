@@ -7,106 +7,74 @@ pub struct Time {
     pub ticks: u32,
 }
 
-// Implement addition of Time and any type that can be added to u32
-impl<T> Add<T> for Time
-where
-    T: Into<u32>,
-{
+// Adding ticks to Time
+impl Add<u32> for Time {
     type Output = Self;
 
-    fn add(self, rhs: T) -> Self::Output {
-        Time {
-            ticks: self.ticks + rhs.into(),
+    fn add(self, rhs: u32) -> Self::Output {
+        Self {
+            ticks: self.ticks + rhs,
         }
     }
 }
 
-// Implement subtraction of Time and any type that can be subtracted from u32
-impl<T> Sub<T> for Time
-where
-    T: Into<u32>,
-{
+// Subtracting ticks from Time
+impl Sub<u32> for Time {
     type Output = Self;
 
-    fn sub(self, rhs: T) -> Self::Output {
-        Time {
-            ticks: self.ticks.saturating_sub(rhs.into()),
-        } // Prevent underflow
+    fn sub(self, rhs: u32) -> Self::Output {
+        Self {
+            ticks: self.ticks.saturating_sub(rhs),
+        }
     }
 }
 
-// Implement multiplication of Time and any type that can be multiplied with u32
-impl<T> Mul<T> for Time
-where
-    T: Into<u32>,
-{
+// Adding ticks to Time in-place
+impl AddAssign<u32> for Time {
+    fn add_assign(&mut self, rhs: u32) {
+        self.ticks += rhs;
+    }
+}
+
+// Subtracting ticks from Time in-place
+impl SubAssign<u32> for Time {
+    fn sub_assign(&mut self, rhs: u32) {
+        self.ticks = self.ticks.saturating_sub(rhs);
+    }
+}
+
+// Multiplying Time by a float
+impl Mul<f32> for Time {
     type Output = Self;
 
-    fn mul(self, rhs: T) -> Self::Output {
-        Time {
-            ticks: self.ticks * rhs.into(),
+    fn mul(self, rhs: f32) -> Self::Output {
+        Self {
+            ticks: (self.ticks as f32 * rhs).round() as u32,
         }
     }
 }
 
-// Implement division of Time and any type that can be divided with u32
-impl<T> Div<T> for Time
-where
-    T: Into<u32>,
-{
+// Dividing Time by a float
+impl Div<f32> for Time {
     type Output = Self;
 
-    fn div(self, rhs: T) -> Self::Output {
-        let divisor = rhs.into();
-        if divisor == 0 {
-            panic!("Attempt to divide by zero");
-        }
-        Time {
-            ticks: self.ticks / divisor,
+    fn div(self, rhs: f32) -> Self::Output {
+        Self {
+            ticks: (self.ticks as f32 / rhs).round() as u32,
         }
     }
 }
 
-// Implement addition assignment for Time and any type that can be added to u32
-impl<T> AddAssign<T> for Time
-where
-    T: Into<u32>,
-{
-    fn add_assign(&mut self, rhs: T) {
-        self.ticks += rhs.into();
+// Multiplying Time by a float in-place
+impl MulAssign<f32> for Time {
+    fn mul_assign(&mut self, rhs: f32) {
+        self.ticks = (self.ticks as f32 * rhs).round() as u32;
     }
 }
 
-// Implement subtraction assignment for Time and any type that can be subtracted from u32
-impl<T> SubAssign<T> for Time
-where
-    T: Into<u32>,
-{
-    fn sub_assign(&mut self, rhs: T) {
-        self.ticks = self.ticks.saturating_sub(rhs.into());
-    }
-}
-
-// Implement multiplication assignment for Time and any type that can be multiplied with u32
-impl<T> MulAssign<T> for Time
-where
-    T: Into<u32>,
-{
-    fn mul_assign(&mut self, rhs: T) {
-        self.ticks *= rhs.into();
-    }
-}
-
-// Implement division assignment for Time and any type that can be divided with u32
-impl<T> DivAssign<T> for Time
-where
-    T: Into<u32>,
-{
-    fn div_assign(&mut self, rhs: T) {
-        let divisor = rhs.into();
-        if divisor == 0 {
-            panic!("Attempt to divide by zero");
-        }
-        self.ticks /= divisor;
+// Dividing Time by a float in-place
+impl DivAssign<f32> for Time {
+    fn div_assign(&mut self, rhs: f32) {
+        self.ticks = (self.ticks as f32 / rhs).round() as u32;
     }
 }

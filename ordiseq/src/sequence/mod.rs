@@ -96,66 +96,87 @@ impl Sequence {
             )),
         });
 
-        // Convert sequence elements to MIDI events
-        let mut last_time_ticks = 0;
+        // Collect all note-on and note-off events
+        let mut events = Vec::new();
 
         for (&time, element) in &self.elements {
-            let delta = (time.ticks - last_time_ticks).into();
             match element {
                 SequenceElement::Note(sequence_note) => {
                     // Note On
-                    track.push(TrackEvent {
-                        delta,
-                        kind: TrackEventKind::Midi {
+                    events.push((
+                        time.ticks,
+                        TrackEventKind::Midi {
                             channel: 0.into(),
                             message: MidiMessage::NoteOn {
                                 key: sequence_note.note.midi_value().into(),
                                 vel: ((sequence_note.velocity * 127.0).round() as u8).into(),
                             },
                         },
-                    });
+                    ));
+
                     // Note Off
-                    track.push(TrackEvent {
-                        delta: sequence_note.duration.ticks.into(),
-                        kind: TrackEventKind::Midi {
+                    let end_time_ticks = time.ticks + sequence_note.duration.ticks;
+                    events.push((
+                        end_time_ticks,
+                        TrackEventKind::Midi {
                             channel: 0.into(),
                             message: MidiMessage::NoteOff {
                                 key: sequence_note.note.midi_value().into(),
                                 vel: 0.into(),
                             },
                         },
-                    });
+                    ));
                 }
                 SequenceElement::Chord(chord) => {
                     for sequence_note in &chord.sequence_notes {
                         // Note On
-                        track.push(TrackEvent {
-                            delta,
-                            kind: TrackEventKind::Midi {
+                        events.push((
+                            time.ticks,
+                            TrackEventKind::Midi {
                                 channel: 0.into(),
                                 message: MidiMessage::NoteOn {
                                     key: sequence_note.note.midi_value().into(),
                                     vel: ((sequence_note.velocity * 127.0).round() as u8).into(),
                                 },
                             },
-                        });
+                        ));
                     }
+
+                    // Note Offs
                     for sequence_note in &chord.sequence_notes {
-                        // Note Off
-                        track.push(TrackEvent {
-                            delta: sequence_note.duration.ticks.into(),
-                            kind: TrackEventKind::Midi {
+                        let end_time_ticks = time.ticks + sequence_note.duration.ticks;
+                        events.push((
+                            end_time_ticks,
+                            TrackEventKind::Midi {
                                 channel: 0.into(),
                                 message: MidiMessage::NoteOff {
                                     key: sequence_note.note.midi_value().into(),
                                     vel: 0.into(),
                                 },
                             },
-                        });
+                        ));
                     }
                 }
             }
-            last_time_ticks = time.ticks;
+        }
+
+        // Sort events by time ticks
+        events.sort_by_key(|&(ticks, _)| ticks);
+
+        // Add sorted events to the track
+        let mut last_time_ticks = 0;
+
+        for (time, kind) in events {
+            if time < last_time_ticks {
+                panic!(
+                    "Time ticks are not in increasing order: {} < {}",
+                    time, last_time_ticks
+                );
+            }
+
+            let delta = (time - last_time_ticks).into();
+            track.push(TrackEvent { delta, kind });
+            last_time_ticks = time;
         }
 
         // End of track event
