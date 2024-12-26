@@ -150,7 +150,7 @@ fn load_scales() -> &'static HashMap<String, Scale> {
 /// # Example
 /// ```rust
 /// let scale = scale_omnibus::get_scale("major").unwrap();
-/// assert_eq!(scale.name, "Major");
+/// assert_eq!(scale.name, "Majorz");
 /// assert_eq!(scale.intervals, Some(vec![2, 2, 1, 2, 2, 2, 1]));
 /// ```
 pub fn get_scale(name: &str) -> Result<&Scale, ScaleOmnibusError> {
