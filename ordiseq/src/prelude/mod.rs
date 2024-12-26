@@ -8,6 +8,7 @@ pub use std::time::Duration;
 //Exports from this crate:
 pub use crate::scales::*;
 pub use crate::sequence::*;
+pub use crate::time::*;
 pub use crate::util::file::make_filename;
 pub use crate::util::log::setup_log;
 

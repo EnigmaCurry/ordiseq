@@ -3,25 +3,19 @@
 //! Represent a musical sequence of notes and chords.
 //! Includes function to export a sequence to a MIDI file.
 
-use crate::{error::OrdiseqError, midi::HasMidiValue};
+use crate::{error::OrdiseqError, midi::HasMidiValue, time::calculate_tpqn};
 use klib::core::note::Note;
 use midly::{Format, MetaMessage, MidiMessage, Smf, Timing, TrackEvent, TrackEventKind};
 use std::collections::BTreeMap;
 
-use crate::time::TimeSignature;
-
-/// Represents the time in ticks within a sequence.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Time {
-    pub ticks: u32,
-}
+use crate::time::{Time, TimeSignature};
 
 /// Represents a single note in the sequence.
 #[derive(Debug, Clone, PartialEq)]
 struct SequenceNote {
     pub note: Note,
     pub velocity: f32, // 0->1
-    pub duration: u32, // Duration in ticks
+    pub duration: Time,
 }
 
 /// Represents a chord of notes in the sequence.
@@ -45,23 +39,21 @@ enum SequenceElement {
 pub struct Sequence {
     title: String,
     time_signature: TimeSignature,
-    ppq: u16, // Pulses Per Quarter Note
     elements: BTreeMap<Time, SequenceElement>,
 }
 
 impl Sequence {
     /// Creates a new empty sequence with the given time signature and PPQ.
-    pub fn new(title: &str, time_signature: &str, ppq: u16) -> Result<Self, OrdiseqError> {
+    pub fn new(title: &str, time_signature: TimeSignature) -> Result<Self, OrdiseqError> {
         Ok(Self {
             title: title.to_string(),
-            time_signature: TimeSignature::new(time_signature)?,
-            ppq,
+            time_signature,
             elements: BTreeMap::new(),
         })
     }
 
     /// Adds a note to the sequence at a specific time.
-    pub fn add_note(&mut self, time: Time, note: Note, velocity: f32, duration: u32) {
+    pub fn add_note(&mut self, time: Time, note: Note, velocity: f32, duration: Time) {
         let sequence_note = SequenceNote {
             note,
             velocity,
@@ -75,7 +67,7 @@ impl Sequence {
     pub fn add_chord(
         &mut self,
         time: Time,
-        notes: Vec<(Note, f32, u32)>, // Vec of (Note, velocity, duration)
+        notes: Vec<(Note, f32, Time)>, // Vec of (Note, velocity, duration)
     ) {
         let sequence_notes = notes
             .into_iter()
@@ -124,7 +116,7 @@ impl Sequence {
                     });
                     // Note Off
                     track.push(TrackEvent {
-                        delta: sequence_note.duration.into(),
+                        delta: sequence_note.duration.ticks.into(),
                         kind: TrackEventKind::Midi {
                             channel: 0.into(),
                             message: MidiMessage::NoteOff {
@@ -151,7 +143,7 @@ impl Sequence {
                     for sequence_note in &chord.sequence_notes {
                         // Note Off
                         track.push(TrackEvent {
-                            delta: sequence_note.duration.into(),
+                            delta: sequence_note.duration.ticks.into(),
                             kind: TrackEventKind::Midi {
                                 channel: 0.into(),
                                 message: MidiMessage::NoteOff {
@@ -175,13 +167,20 @@ impl Sequence {
         Smf {
             header: midly::Header {
                 format: Format::SingleTrack,
-                timing: Timing::Metrical(self.ppq.into()),
+                timing: Timing::Metrical(self.ppq().into()),
             },
             tracks: vec![track],
         }
     }
 
+    fn ppq(&self) -> u16 {
+        calculate_tpqn(self.time_signature).unwrap_or(96)
+    }
+
     pub fn title(&self) -> String {
         self.title.clone()
+    }
+    pub fn time_signature(&self) -> TimeSignature {
+        self.time_signature
     }
 }

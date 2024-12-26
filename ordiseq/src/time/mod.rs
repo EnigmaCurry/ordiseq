@@ -8,6 +8,12 @@ use crate::error::OrdiseqError;
 use std::convert::TryFrom;
 use std::fmt;
 
+/// Represents time in ticks within a (MIDI) sequence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Time {
+    pub ticks: u32,
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 /// Represents a musical time signature.
 ///
@@ -18,6 +24,7 @@ use std::fmt;
 pub struct TimeSignature {
     pub beats_per_bar: u8,
     pub beat_unit: u8,
+    pub ticks_per_quarter_note: u32,
 }
 
 impl TimeSignature {
@@ -37,8 +44,8 @@ impl TimeSignature {
     /// - The input string is not in the correct "numerator/denominator" format.
     /// - The numerator or denominator cannot be parsed as a valid number.
     /// - The denominator is not a power of two.
-    pub fn new(input: &str) -> Result<Self, OrdiseqError> {
-        let parts: Vec<&str> = input.split('/').collect();
+    pub fn new(ts_str: &str, ticks_per_quarter_note: u32) -> Result<Self, OrdiseqError> {
+        let parts: Vec<&str> = ts_str.split('/').collect();
         if parts.len() != 2 {
             return Err(OrdiseqError::InvalidTimeSignature(
                 "Input must be in the format 'numerator/denominator'".to_string(),
@@ -62,25 +69,20 @@ impl TimeSignature {
         Ok(TimeSignature {
             beats_per_bar,
             beat_unit,
+            ticks_per_quarter_note,
         })
     }
-}
 
-impl TryFrom<&str> for TimeSignature {
-    type Error = OrdiseqError;
-
-    /// Attempts to convert a string slice to a `TimeSignature` instance.
-    ///
-    /// # Arguments
-    ///
-    /// * `s` - A string slice representation of the time signature in "numerator/denominator" format.
+    /// Calculate the length of one bar in ticks
     ///
     /// # Returns
-    ///
-    /// * `Ok(TimeSignature)` - A new instance of `TimeSignature` if successful.
-    /// * `Err(OrdiseqError)` - An error if the string is invalid.
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        TimeSignature::new(s)
+    /// The length (Time) of one bar
+    pub fn bar_time(&self) -> Time {
+        let quarter_note_ratio = 4.0 / self.beat_unit as f32;
+        let quarter_notes_per_bar = self.beats_per_bar as f32 * quarter_note_ratio;
+        Time {
+            ticks: (quarter_notes_per_bar * self.ticks_per_quarter_note as f32) as u32,
+        }
     }
 }
 
@@ -118,6 +120,11 @@ pub fn calculate_tpqn(time_signature: TimeSignature) -> Option<u16> {
 
     // Make sure the result is divisible by common beat subdivisions (e.g., 12, 24, 48)
     Some(adjusted_tpqn * time_signature.beats_per_bar as u16)
+}
+
+/// Return a common time 4/4 time signature with 96 ticks per quarter note
+pub fn common_time() -> TimeSignature {
+    TimeSignature::new("4/4", 96).expect("Expected common 4/4 time signature")
 }
 
 #[cfg(test)]
