@@ -27,6 +27,7 @@
 //!
 //! ## Examples
 pub mod error;
+pub mod midi;
 pub mod prelude;
 pub mod scales;
 pub mod sequence;
