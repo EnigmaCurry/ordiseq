@@ -4,7 +4,7 @@ use ordiseq::prelude::*;
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_log();
 
-    let time_signature = common_time();
+    let time_signature = common_time(); // 4/4 96tpqn
     let mut seq = Sequence::new("Jingle Bells", time_signature)?;
 
     let verse = vec![
@@ -37,7 +37,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     // The sequence above codes notes as legato with no rests.
-    // We should scale each note duration without affecting the timing:
+    // We should scale each note duration without affecting the overall timing:
     let release_scale = 0.5; // Each note is half as long as it would be.
 
     // Add each note to the sequence:
@@ -47,12 +47,16 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         let end_time = Time {
             ticks: start_time.ticks + duration.ticks,
         };
+        let velocity = 0.7;
         // Add the note while scaling the duration acording to release_scale:
-        seq.add_note(start_time, note, 0.7, duration * 0.5);
+        seq.add_note(start_time, note, velocity, duration * release_scale);
         start_time = end_time;
     }
 
     //info!("seq: {seq:#?}");
+
+    // Transpose the notes up seven semi-tones:
+    seq = seq.transpose(7)?;
 
     // Write the MIDI file output:
     seq.to_midi().save(&make_filename(&seq.title(), "mid"))?;

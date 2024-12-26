@@ -3,12 +3,12 @@
 //! Represent a musical sequence of notes and chords.
 //! Includes function to export a sequence to a MIDI file.
 
+use crate::klib_trait::Transposable;
+use crate::time::{Time, TimeSignature};
 use crate::{error::OrdiseqError, midi::HasMidiValue, time::calculate_tpqn};
 use klib::core::note::Note;
 use midly::{Format, MetaMessage, MidiMessage, Smf, Timing, TrackEvent, TrackEventKind};
 use std::collections::BTreeMap;
-
-use crate::time::{Time, TimeSignature};
 
 /// Represents a single note in the sequence.
 #[derive(Debug, Clone, PartialEq)]
@@ -79,6 +79,20 @@ impl Sequence {
             .collect();
         let chord = SequenceChord { sequence_notes };
         self.elements.insert(time, SequenceElement::Chord(chord));
+    }
+
+    pub fn transpose(mut self, semitones: i8) -> Result<Self, OrdiseqError> {
+        for (_time, element) in &mut self.elements {
+            match element {
+                SequenceElement::Note(note) => {
+                    note.note = note.note.transpose(semitones);
+                }
+                SequenceElement::Chord(_) => {
+                    return Err(OrdiseqError::ChordTranspositionUnsupported);
+                }
+            }
+        }
+        Ok(self)
     }
 
     /// Converts the sequence into a MIDI `Smf` (Standard MIDI File).
