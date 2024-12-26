@@ -15,7 +15,7 @@ jobs:
 
     steps:
     - name: Update Rust nightly
-      run: rustup toolchain install nightly && rustup default nightly
+      run: rustup toolchain install nightly
 
     # Install system dependencies
     - name: Install host packages

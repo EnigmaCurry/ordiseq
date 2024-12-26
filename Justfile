@@ -10,6 +10,9 @@ help:
 
 # Install dependencies
 deps:
+    @if ! command -v cargo-workspace >/dev/null; then \
+        cargo install --locked cargo-workspace; \
+    fi
     @if ! command -v cargo-watch >/dev/null; then \
         cargo install --locked cargo-watch; \
     fi
@@ -28,6 +31,7 @@ deps:
 
 # Install binary dependencies (gh-actions)
 bin-deps:
+    cargo binstall --no-confirm cargo-workspace
     cargo binstall --no-confirm cargo-nextest
     cargo binstall --no-confirm cargo-llvm-cov
 

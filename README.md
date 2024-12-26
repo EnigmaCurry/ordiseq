@@ -24,6 +24,7 @@ sudo dnf install @development-tools @development-libs
 
 ```
 rustup-init  ## Enter the default prompts
+rustup toolchain install nightly
 . "$HOME/.cargo/env"
 ```
 

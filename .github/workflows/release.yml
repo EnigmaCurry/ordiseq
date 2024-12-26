@@ -30,7 +30,7 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
     - name: Update Rust stable
-      run: rustup toolchain install nightly && rustup default nightly
+      run: rustup toolchain install nightly
 
     # Install cargo-binstall
     - name: Install cargo-binstall
