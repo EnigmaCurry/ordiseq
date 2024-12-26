@@ -18,7 +18,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         (G, 1.0),
         (C, 1.5),
         (D, 0.5),
-        (E, 2.0), // "jin-gle all the way"
+        (E, 4.0), // "jin-gle all the way"
         (F, 1.0),
         (F, 1.0),
         (F, 1.5),
@@ -39,9 +39,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Add each note to the sequence:
     let mut start_time = Time { ticks: 0 };
     for (note, duration) in verse {
-        let duration = Time {
-            ticks: (duration * time_signature.ticks_per_quarter_note as f32) as u32,
-        };
+        let duration = time_signature.beat_time(duration);
         let end_time = Time {
             ticks: start_time.ticks + duration.ticks,
         };
