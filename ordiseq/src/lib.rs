@@ -26,7 +26,9 @@
 //! ## Getting started
 //!
 //! ## Examples
+pub mod error;
 pub mod prelude;
 pub mod scales;
 pub mod sequence;
+pub mod time;
 pub mod util;
