@@ -106,22 +106,23 @@ impl Sequence {
         Ok(self)
     }
 
-    pub fn load<N>(&mut self, notes: &Vec<(N, u32)>) -> Result<(), Box<dyn std::error::Error>>
+    pub fn load<N>(
+        &mut self,
+        notes: &Vec<(N, u32, f32, f32)>,
+    ) -> Result<(), Box<dyn std::error::Error>>
     where
         N: IntoNoteOrRest + Clone,
     {
-        let release_scale = 0.5; // Each note is held half as long as before.
         let mut start_time = Time { ticks: 0 };
 
-        for (note, duration) in notes {
+        for (note, duration, velocity, release_scale) in notes {
             let length = self.time_signature().beat_time(*duration as f32);
             let end_time = Time {
                 ticks: start_time.ticks + length.ticks,
             };
-            let velocity = 0.7;
 
             // Add the note while scaling the duration according to release_scale:
-            self.add_note(start_time, note.clone(), velocity, length * release_scale);
+            self.add_note(start_time, note.clone(), *velocity, length * *release_scale);
             start_time = end_time;
         }
 
