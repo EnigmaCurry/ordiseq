@@ -3,7 +3,7 @@
 //! Represent a musical sequence of notes and chords.
 //! Includes function to export a sequence to a MIDI file.
 
-use crate::klib_trait::Transposable;
+use crate::klib_trait::{IntoNoteOrRest, NoteOrRest, Transposable};
 use crate::time::{Time, TimeSignature};
 use crate::{error::OrdiseqError, midi::HasMidiValue, time::calculate_tpqn};
 use klib::core::note::Note;
@@ -53,14 +53,25 @@ impl Sequence {
     }
 
     /// Adds a note to the sequence at a specific time.
-    pub fn add_note(&mut self, time: Time, note: Note, velocity: f32, duration: Time) {
-        let sequence_note = SequenceNote {
-            note,
-            velocity,
-            duration,
-        };
-        self.elements
-            .insert(time, SequenceElement::Note(sequence_note));
+    pub fn add_note<N>(&mut self, time: Time, note: N, velocity: f32, duration: Time)
+    where
+        N: IntoNoteOrRest,
+    {
+        match note.into_note_or_rest() {
+            NoteOrRest::Note(note) => {
+                self.elements.insert(
+                    time,
+                    SequenceElement::Note(SequenceNote {
+                        note,
+                        velocity,
+                        duration,
+                    }),
+                );
+            }
+            NoteOrRest::Rest => {
+                // Ignore explicit rests, they are implied by the notes.
+            }
+        }
     }
 
     /// Adds a chord to the sequence at a specific time.
@@ -93,6 +104,28 @@ impl Sequence {
             }
         }
         Ok(self)
+    }
+
+    pub fn load<N>(&mut self, notes: &Vec<(N, u32)>) -> Result<(), Box<dyn std::error::Error>>
+    where
+        N: IntoNoteOrRest + Clone,
+    {
+        let release_scale = 0.5; // Each note is held half as long as before.
+        let mut start_time = Time { ticks: 0 };
+
+        for (note, duration) in notes {
+            let length = self.time_signature().beat_time(*duration as f32);
+            let end_time = Time {
+                ticks: start_time.ticks + length.ticks,
+            };
+            let velocity = 0.7;
+
+            // Add the note while scaling the duration according to release_scale:
+            self.add_note(start_time, note.clone(), velocity, length * release_scale);
+            start_time = end_time;
+        }
+
+        Ok(())
     }
 
     /// Converts the sequence into a MIDI `Smf` (Standard MIDI File).

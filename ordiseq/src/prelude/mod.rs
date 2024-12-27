@@ -6,6 +6,7 @@ pub use std::str::FromStr;
 pub use std::time::Duration;
 
 //Exports from this crate:
+pub use crate::klib_trait::*;
 pub use crate::scales::*;
 pub use crate::sequence::*;
 pub use crate::time::*;

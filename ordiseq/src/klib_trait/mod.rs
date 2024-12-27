@@ -28,3 +28,26 @@ impl Transposable for Note {
         Note::new(new_pitch, new_octave)
     }
 }
+
+/// Sequence type for holding a single note or a rest
+#[derive(Clone)]
+pub enum NoteOrRest {
+    Note(klib::core::note::Note),
+    Rest,
+}
+
+pub trait IntoNoteOrRest {
+    fn into_note_or_rest(self) -> NoteOrRest;
+}
+
+impl IntoNoteOrRest for klib::core::note::Note {
+    fn into_note_or_rest(self) -> NoteOrRest {
+        NoteOrRest::Note(self)
+    }
+}
+
+impl IntoNoteOrRest for NoteOrRest {
+    fn into_note_or_rest(self) -> NoteOrRest {
+        self
+    }
+}
