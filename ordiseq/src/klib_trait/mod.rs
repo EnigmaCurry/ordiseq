@@ -1,8 +1,7 @@
 use klib::core::named_pitch::{HasNamedPitch, NamedPitch};
+use klib::core::note::Note;
 use klib::core::octave::{HasOctave, Octave};
 use klib::core::pitch::{HasPitch, Pitch};
-
-use klib::core::note::Note;
 
 pub trait Transposable {
     /// Transposes the note by the given number of semitones.

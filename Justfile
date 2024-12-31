@@ -36,13 +36,15 @@ bin-deps:
     cargo binstall --no-confirm cargo-llvm-cov
 
 # Build and run binary + args
-[no-cd]
 run *args:
     cargo run --manifest-path "${current_dir}/Cargo.toml" {{args}}
 
 # Build + args
 build *args:
     RUSTFLAGS="-D warnings" cargo build {{args}}
+
+build-plugin *args:
+    cd ordiseq-plug && cargo xtask bundle ordiseq-plug --release
 
 # Run tests
 test *args: 

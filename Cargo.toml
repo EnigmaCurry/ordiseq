@@ -2,5 +2,5 @@
 resolver = "2"
 
 members = [
-    "ordiseq", "scale_omnibus",
+    "ordiseq", "ordiseq_plug", "scale_omnibus", "xtask"
 ]
