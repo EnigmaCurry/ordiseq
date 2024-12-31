@@ -74,7 +74,12 @@ just run --example test
 
    * [kord](https://crates.io/crates/kord) (klib) - used for Pitches,
      Notes, Chords and more. Created by Aaron Roney.
- 
+
+ * [ordiseq_plug](ordiseq_plug) uses
+   [nih-plug](https://github.com/robbert-vdh/nih-plug) and started as
+   a copy of [one of the nih-plug
+   examples](https://github.com/robbert-vdh/nih-plug/blob/master/plugins/examples/midi_inverter/src/lib.rs).
+
  * Many other libraries from the Rust ecosystem have been used as
    listed in each crate's Cargo.toml. Thank you to all the library
    authors and supporters.
