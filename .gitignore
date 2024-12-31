@@ -3,4 +3,4 @@
 /*.profraw
 /*.profdata
 *.mid
-ordiseq_plug
+ordiseq_plug/target
