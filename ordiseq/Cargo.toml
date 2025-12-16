@@ -17,7 +17,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage,coverage_nightly)
 dirs = "6.0.0"
 env_logger = "0.11.8"
 log = "0.4.29"
-## Use stable git repo until kord >0.7.1 is released
+## Use stable git repo until kord >=0.8.0 is released
 kord = { git = "https://github.com/EnigmaCurry/kord.git" }
 midir = "0.10.3"
 midly = "0.5.3"
