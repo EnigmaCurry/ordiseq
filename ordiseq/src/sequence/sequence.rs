@@ -130,7 +130,7 @@ impl Sequence {
     }
 
     /// Converts the sequence into a MIDI `Smf` (Standard MIDI File).
-    pub fn to_midi(&self) -> Smf {
+    pub fn to_midi(&self) -> Smf<'_> {
         let mut track = Vec::new();
 
         // Add a time signature event

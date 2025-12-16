@@ -59,7 +59,7 @@ impl DrumSequence {
         );
     }
 
-    pub fn to_midi(&self) -> Smf {
+    pub fn to_midi(&self) -> Smf<'_> {
         let mut midi_track = vec![];
 
         // Add metadata (e.g., sequence title)
