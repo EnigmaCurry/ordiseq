@@ -19,5 +19,52 @@ This library contains YAML data compiled by Corey Hoard: [ioanszilagyi/scale_omn
 - More than 1000 musical scales.
 - Retrieve scales directly by name.
 - Search for scales based on any criteria, such as origin, name
-substring match, or the number of intervals.
+  substring match, or the number of intervals.
+- CLI tool for exploring scales from the command line.
+
+## CLI
+
+Build and install the CLI with the `cli` feature:
+
+```bash
+cargo install scale_omnibus --features cli
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--json` | Output in JSON format |
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `get <name>` | Get a scale by name (case-insensitive) |
+| `list` | List all scale names |
+| `search <pattern>` | Search scales by name pattern |
+| `origin <origin>` | Find scales by origin/culture |
+| `intervals <min>` | Find scales with more than N intervals |
+| `asymmetric` | Find scales with different ascending/descending intervals |
+| `count` | Count total number of scales |
+| `origins` | List all unique origins |
+
+### Examples
+
+```bash
+# Get details about a specific scale
+scale_omnibus get major
+
+# Search for scales by name
+scale_omnibus search pentatonic
+
+# Find scales from a specific origin
+scale_omnibus origin india
+
+# List all scales with different ascending/descending intervals
+scale_omnibus asymmetric
+
+# Count total scales
+scale_omnibus count
+```
 

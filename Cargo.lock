@@ -2036,7 +2036,9 @@ dependencies = [
 name = "scale_omnibus"
 version = "0.1.2"
 dependencies = [
+ "clap",
  "serde",
+ "serde_json",
  "serde_yaml",
  "thiserror 2.0.17",
 ]

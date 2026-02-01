@@ -14,7 +14,7 @@
 //! - More than 1000 musical scales.
 //! - Retrieve scales directly by name.
 //! - Search for scales based on any criteria, such as origin, name
-//! substring match, or the number of intervals.
+//!   substring match, or the number of intervals.
 //!
 //! ## Key Structures and Functions
 //!
@@ -34,7 +34,7 @@ use std::sync::OnceLock;
 use thiserror::Error;
 
 /// Represents a musical scale with various properties.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Scale {
     /// The name of the scale (e.g., "Major", "Dorian").
     pub name: String,
@@ -42,36 +42,43 @@ pub struct Scale {
     /// The intervals of the scale in semitones, if defined.
     ///
     /// Example: A Major scale might have intervals `[2, 2, 1, 2, 2, 2, 1]`.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub intervals: Option<Vec<u8>>,
 
     /// The non-standard ascending intervals of the scale in semitones, if distinct from the main intervals.
     ///
     /// Example: For an Enigmatic scale, this might be `[1, 3, 2, 2, 2, 1, 1]`.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub intervals_ascending: Option<Vec<u8>>,
 
     /// The non-standard descending intervals of the scale in semitones, if distinct from the main intervals.
     ///
     /// Example: For an Enigmatic scale, this might be `[1, 3, 1, 3, 2, 1, 1]`.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub intervals_descending: Option<Vec<u8>>,
 
     /// The notes of the scale, expressed as offset from root, if defined.
     ///
     /// Example: A C Major scale might have notes `[0, 2, 4, 5, 7, 9, 11]` corresponding to `C, D, E, F, G, A, B`.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<Vec<u8>>,
 
     /// The non-standard ascending notes of the scale, if distinct.
     ///
     /// Example: For an Enigmatic scale, this might be `[0, 1, 4, 6, 8, 10, 11]`.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub notes_ascending: Option<Vec<u8>>,
 
     /// The non-standard descending notes of the scale, if distinct.
     ///
     /// Example: For an Enigmatic scale, this might be `[0, 1, 4, 5, 8, 10, 11]`.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub notes_descending: Option<Vec<u8>>,
 
     /// The origin or cultural association of the scale, if available.
     ///
     /// Example: A scale might have an origin like `"Egypt"` or `"India"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
 }
 
@@ -241,7 +248,7 @@ pub fn find_scales_with_intervals_greater_than(
         scale
             .intervals
             .as_ref()
-            .map_or(false, |intervals| intervals.len() > min_intervals)
+            .is_some_and(|intervals| intervals.len() > min_intervals)
     })
 }
 
@@ -267,7 +274,7 @@ pub fn find_scales_by_origin(origin: &str) -> Result<Vec<Scale>, ScaleOmnibusErr
         scale
             .origin
             .as_ref()
-            .map_or(false, |o| o.to_lowercase() == origin.to_lowercase())
+            .is_some_and(|o| o.to_lowercase() == origin.to_lowercase())
     })
 }
 

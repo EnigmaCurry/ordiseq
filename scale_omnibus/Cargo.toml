@@ -11,4 +11,13 @@ documentation = "https://docs.rs/scale_omnibus"
 [dependencies]
 serde = { version = "1.0.216", features = ["derive"] }
 serde_yaml = "0.9.34"
+serde_json = { version = "1", optional = true }
 thiserror = "2.0.9"
+clap = { version = "4", features = ["derive"], optional = true }
+
+[features]
+cli = ["clap", "serde_json"]
+
+[[bin]]
+name = "scale_omnibus"
+required-features = ["cli"]
