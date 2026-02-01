@@ -13,6 +13,10 @@ documentation = "https://docs.rs/ordiseq"
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage,coverage_nightly)'] }
 
+[features]
+default = []
+synth = ["dep:rustysynth", "dep:cpal", "dep:hound"]
+
 [dependencies]
 dirs = "6.0.0"
 env_logger = "0.11.8"
@@ -27,14 +31,21 @@ serde_yaml = "0.9.34"
 strum = { version = "0.27.2", features = ["derive"] }
 thiserror = "2.0.17"
 
+# Optional synth dependencies
+rustysynth = { version = "1", optional = true }
+cpal = { version = "0.15", optional = true }
+hound = { version = "3", optional = true }
+
 [dev-dependencies]
 shell-words = "1.1.1"
 clap = "4.5.53"
 clap_complete = "4.5.61"
-rustysynth = "1"
-hound = "3"
 
 [build-dependencies]
 clap = "4.5.53"
 clap_complete = "4.5.61"
 dirs = "6.0.0"
+
+[[example]]
+name = "jingle_bells_synth"
+required-features = ["synth"]

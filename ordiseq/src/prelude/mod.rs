@@ -24,3 +24,7 @@ pub use klib::core::note::*;
 pub use klib::core::octave::*;
 pub use klib::core::parser::*;
 pub use klib::core::pitch::*;
+
+// Synth module (requires "synth" feature)
+#[cfg(feature = "synth")]
+pub use crate::synth::{Player, SoundFontSource, SynthError};

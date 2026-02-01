@@ -32,5 +32,7 @@ pub mod midi;
 pub mod prelude;
 pub mod scales;
 pub mod sequence;
+#[cfg(feature = "synth")]
+pub mod synth;
 pub mod time;
 pub mod util;
