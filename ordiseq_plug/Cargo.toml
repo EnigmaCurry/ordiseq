@@ -5,6 +5,7 @@ edition = "2024"
 repository = "https://github.com/EnigmaCurry/ordiseq"
 homepage = "https://github.com/EnigmaCurry/ordiseq"
 license = "MIT"
+publish = false
 
 [lib]
 crate-type = ["cdylib"]
