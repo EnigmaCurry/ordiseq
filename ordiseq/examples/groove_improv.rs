@@ -379,6 +379,14 @@ struct Cli {
     #[arg(long, default_value = "0.5")]
     fill: f32,
 
+    /// Start with lead muted
+    #[arg(long)]
+    ml: bool,
+
+    /// Start with bass muted
+    #[arg(long)]
+    mb: bool,
+
     /// Export MIDI to file instead of playing (requires --seed)
     #[arg(long)]
     output: Option<String>,
@@ -1318,7 +1326,7 @@ impl PlayState {
         Ok(seq)
     }
 
-    fn display_with_instruments(&self, lead: Option<u8>, bass: Option<u8>) {
+    fn display_with_instruments(&self, lead: Option<u8>, bass: Option<u8>, mute_lead: bool, mute_bass: bool) {
         let scale = get_scale(&self.scale_name).unwrap();
 
         // Build the command line args
@@ -1332,16 +1340,22 @@ impl PlayState {
         if let Some(prog) = bass {
             args.push_str(&format!(" --bass {}", prog));
         }
+        if mute_lead {
+            args.push_str(" --ml");
+        }
+        if mute_bass {
+            args.push_str(" --mb");
+        }
         println!("\n{}", args);
 
-        // Show instrument names if set
-        if lead.is_some() || bass.is_some() {
-            let lead_name = lead.map(|p| format!("{} ({})", p, gm_instrument_name(p)))
-                .unwrap_or_else(|| "default".to_string());
-            let bass_name = bass.map(|p| format!("{} ({})", p, gm_instrument_name(p)))
-                .unwrap_or_else(|| "33 (Electric Bass (finger))".to_string());
-            println!("Lead: {} | Bass: {}", lead_name, bass_name);
-        }
+        // Show instrument names and mute status
+        let lead_name = lead.map(|p| format!("{} ({})", p, gm_instrument_name(p)))
+            .unwrap_or_else(|| "default".to_string());
+        let bass_name = bass.map(|p| format!("{} ({})", p, gm_instrument_name(p)))
+            .unwrap_or_else(|| "33 (Electric Bass (finger))".to_string());
+        let lead_status = if mute_lead { " [MUTED]" } else { "" };
+        let bass_status = if mute_bass { " [MUTED]" } else { "" };
+        println!("Lead: {}{} | Bass: {}{}", lead_name, lead_status, bass_name, bass_status);
 
         println!(
             "Scale: {} | Root: {} | Pattern: {:?} | Groove: {}",
@@ -1423,6 +1437,8 @@ fn run_demo_mode(
     initial_variation: u32,
     initial_lead: Option<u8>,
     initial_bass: Option<u8>,
+    initial_mute_lead: bool,
+    initial_mute_bass: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Using SoundFont: {}", soundfont.path().display());
     println!("\n=== IMPROV DEMO MODE ===");
@@ -1448,8 +1464,8 @@ fn run_demo_mode(
     let mut current_bass: Option<u8> = initial_bass;
 
     // Mute states
-    let mut mute_lead = false;
-    let mut mute_bass = false;
+    let mut mute_lead = initial_mute_lead;
+    let mut mute_bass = initial_mute_bass;
 
     // Current audio thread handle and stop flag
     let mut audio_handle: Option<thread::JoinHandle<()>> = None;
@@ -1479,7 +1495,7 @@ fn run_demo_mode(
                 current_seed = current_seed.wrapping_add(1);
             };
 
-            state.display_with_instruments(current_lead, current_bass);
+            state.display_with_instruments(current_lead, current_bass, mute_lead, mute_bass);
             println!("  (looping - Enter=next, n=new, il/ib=instr, ml/mb=mute, b=back, s=stop, q=quit)");
 
             // Build the sequence and convert to MIDI bytes with tempo and instruments
@@ -1679,7 +1695,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let state = PlayState::from_seed(seed, cli.variation, &grooves)
             .ok_or_else(|| format!("Could not generate state for seed {}", seed))?;
 
-        state.display_with_instruments(cli.lead, cli.bass);
+        state.display_with_instruments(cli.lead, cli.bass, false, false);
         // Use clean export variation for perfect looping
         let seq = state.build_sequence_with_options(cli.octaves, cli.strum, cli.fill, true)?;
         let smf = seq.to_midi();
@@ -1700,7 +1716,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         cli.scale.is_none() && cli.root.is_none() && cli.pattern.is_none() && cli.groove.is_none();
 
     if demo_mode || cli.seed.is_some() || cli.variation > 0 || cli.lead.is_some() || cli.bass.is_some() {
-        run_demo_mode(soundfont, cli.octaves, cli.bpm, cli.strum, cli.fill, cli.seed, cli.variation, cli.lead, cli.bass)?;
+        run_demo_mode(soundfont, cli.octaves, cli.bpm, cli.strum, cli.fill, cli.seed, cli.variation, cli.lead, cli.bass, cli.ml, cli.mb)?;
     } else {
         let scale_name = cli.scale.unwrap_or_else(|| "major".to_string());
         let root = if let Some(ref r) = cli.root {
