@@ -1485,14 +1485,16 @@ impl PlayState {
         octaves: u32,
     ) {
         let scale = get_scale(&self.scale_name).unwrap();
+        let pattern_lower = format!("{:?}", self.pattern).to_lowercase();
 
         // Find pattern index
         let pattern_idx = ALL_PATTERNS.iter().position(|&p| p == self.pattern).unwrap_or(0);
 
         // Build complete command line args (always show all)
-        let mut args = format!("--seed {} --variation {}", self.seed, self.variation_index);
+        // Include scale and root so --seed isn't needed to reproduce
+        let mut args = format!("-s \"{}\" -r {}", self.scale_name, note_name(&self.root));
+        args.push_str(&format!(" -p {} -g \"{}\"", pattern_lower, self.groove.name));
         args.push_str(&format!(" --bpm {} --fill {:.2} --strum {} --octaves {}", bpm, fill, strum, octaves));
-        args.push_str(&format!(" -p {:?} -g \"{}\"", self.pattern, self.groove.name));
         if let Some(prog) = lead {
             args.push_str(&format!(" --lead {}", prog));
         }
@@ -1517,11 +1519,11 @@ impl PlayState {
         println!("Lead: {}{} | Bass: {}{}", lead_name, lead_status, bass_name, bass_status);
 
         println!(
-            "Scale: {} | Root: {} | Pattern: {} ({:?}) | Groove: {}",
+            "Scale: {} | Root: {} | Pattern: {} ({}) | Groove: {}",
             scale.name,
             note_name(&self.root),
             pattern_idx,
-            self.pattern,
+            pattern_lower,
             self.groove.name
         );
     }
