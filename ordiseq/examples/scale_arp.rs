@@ -2,10 +2,10 @@ use clap::{Parser, ValueEnum};
 use midly::{MetaMessage, Smf, TrackEvent, TrackEventKind};
 use ordiseq::midi::HasMidiValue;
 use ordiseq::prelude::*;
-use ordiseq::synth::{SoundFontSource, PREFERRED_SOUNDFONTS};
+use ordiseq::synth::{PREFERRED_SOUNDFONTS, SoundFontSource};
+use rand::Rng;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
-use rand::Rng;
 use scale_omnibus::{get_scale, get_scale_names};
 
 const ALL_PATTERNS: [Pattern; 16] = [
@@ -93,7 +93,7 @@ struct Cli {
     octaves: u32,
 
     /// Tempo in beats per minute
-    #[arg(short = 't', long, default_value = "100")]
+    #[arg(short = 't', long, default_value = "120")]
     bpm: u32,
 
     /// Path to a SoundFont file (searches system directories if not provided)
@@ -156,7 +156,7 @@ fn note_name(note: &Note) -> String {
 
 /// Convert BPM to MIDI tempo (microseconds per quarter note)
 fn bpm_to_tempo(bpm: u32) -> u32 {
-    60_000_000 / bpm
+    60_000_000 / (bpm * 2)
 }
 
 /// Add tempo to MIDI bytes by inserting a tempo meta event
@@ -196,7 +196,9 @@ fn add_tempo_to_midi_bytes(midi_bytes: &[u8], bpm: u32) -> Vec<u8> {
     };
 
     let mut output = Vec::new();
-    new_smf.write_std(&mut output).expect("Failed to write MIDI");
+    new_smf
+        .write_std(&mut output)
+        .expect("Failed to write MIDI");
     output
 }
 
@@ -574,6 +576,7 @@ fn run_demo_mode(
 
         play_sequence_with_bpm(&player, &seq, bpm)?;
         println!("done\n");
+        std::thread::sleep(Duration::from_secs(2));
     }
 }
 
@@ -588,7 +591,11 @@ fn run_single_mode(
     bpm: u32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Using SoundFont: {}", soundfont.path().display());
-    println!("Root note: {} (MIDI {})", note_name(&root), root.midi_value());
+    println!(
+        "Root note: {} (MIDI {})",
+        note_name(&root),
+        root.midi_value()
+    );
 
     let scale_notes = get_scale_notes(scale_name)?;
     let scale = get_scale(scale_name)?;
