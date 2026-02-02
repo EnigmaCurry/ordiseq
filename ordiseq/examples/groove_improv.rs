@@ -1109,8 +1109,32 @@ impl PlayState {
         } else {
             SectionVariation::random(&mut rng)
         };
-        let steps = apply_groove_with_variation(&mut rng, &pattern_notes, &self.groove, &variation);
-        add_steps_to_sequence(&mut seq, &steps, 0);
+        let forward_steps = apply_groove_with_variation(&mut rng, &pattern_notes, &self.groove, &variation);
+
+        // Add forward steps
+        let midpoint = add_steps_to_sequence(&mut seq, &forward_steps, 0);
+
+        // Mirror: reverse the notes but keep the rhythm (durations/velocities) forward
+        // Collect just the notes in reverse order
+        let reversed_notes: Vec<Option<Note>> = forward_steps.iter()
+            .map(|s| s.note.clone())
+            .rev()
+            .skip(1)  // Skip last note (same as first of forward when looping)
+            .collect();
+
+        // Apply reversed notes to forward rhythm, skipping last step (same as first)
+        let steps_to_use = forward_steps.len().saturating_sub(1);
+        let reversed_steps: Vec<ResolvedStep> = forward_steps.iter()
+            .take(steps_to_use)
+            .zip(reversed_notes.iter())
+            .map(|(step, rev_note)| ResolvedStep {
+                note: rev_note.clone(),
+                duration_beats: step.duration_beats,
+                velocity: step.velocity,
+            })
+            .collect();
+
+        add_steps_to_sequence(&mut seq, &reversed_steps, midpoint);
 
         Ok(seq)
     }
