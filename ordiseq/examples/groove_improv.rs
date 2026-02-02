@@ -361,6 +361,10 @@ struct Cli {
     #[arg(long, default_value = "0")]
     variation: u32,
 
+    /// GM instrument number (0-127). Use 'i' in demo mode to randomize.
+    #[arg(long)]
+    instrument: Option<u8>,
+
     /// Export MIDI to file instead of playing (requires --seed)
     #[arg(long)]
     output: Option<String>,
@@ -1111,13 +1115,24 @@ impl PlayState {
         Ok(seq)
     }
 
-    fn display(&self) {
+    fn display_with_instrument(&self, instrument: Option<u8>) {
         let scale = get_scale(&self.scale_name).unwrap();
-        if self.variation_index == 0 {
-            println!("\n--seed {}", self.seed);
-        } else {
-            println!("\n--seed {} --variation {}", self.seed, self.variation_index);
+
+        // Build the command line args
+        let mut args = format!("--seed {}", self.seed);
+        if self.variation_index != 0 {
+            args.push_str(&format!(" --variation {}", self.variation_index));
         }
+        if let Some(prog) = instrument {
+            args.push_str(&format!(" --instrument {}", prog));
+        }
+        println!("\n{}", args);
+
+        // Show instrument name if set
+        if let Some(prog) = instrument {
+            println!("Instrument: {} ({})", prog, gm_instrument_name(prog));
+        }
+
         println!(
             "Scale: {} | Root: {} | Pattern: {:?} | Groove: {}",
             scale.name,
@@ -1170,6 +1185,7 @@ fn run_demo_mode(
     bpm: u32,
     initial_seed: Option<u64>,
     initial_variation: u32,
+    initial_instrument: Option<u8>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Using SoundFont: {}", soundfont.path().display());
     println!("\n=== IMPROV DEMO MODE ===");
@@ -1190,8 +1206,8 @@ fn run_demo_mode(
     let mut current_seed = initial_seed.unwrap_or_else(|| rand::thread_rng().gen());
     let mut variation_index = initial_variation;
 
-    // Current GM instrument (None = default piano)
-    let mut current_instrument: Option<u8> = None;
+    // Current GM instrument
+    let mut current_instrument: Option<u8> = initial_instrument;
 
     // Current audio thread handle and stop flag
     let mut audio_handle: Option<thread::JoinHandle<()>> = None;
@@ -1221,10 +1237,7 @@ fn run_demo_mode(
                 current_seed = current_seed.wrapping_add(1);
             };
 
-            state.display();
-            if let Some(prog) = current_instrument {
-                println!("Instrument: {} ({})", prog, gm_instrument_name(prog));
-            }
+            state.display_with_instrument(current_instrument);
             println!("  (looping - Enter=next, n=new scale, i=instrument, b=back, s=stop, q=quit)");
 
             // Build the sequence and convert to MIDI bytes with tempo and instrument
@@ -1380,13 +1393,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let state = PlayState::from_seed(seed, cli.variation, &grooves)
             .ok_or_else(|| format!("Could not generate state for seed {}", seed))?;
 
-        state.display();
+        state.display_with_instrument(cli.instrument);
         // Use clean export variation for perfect looping
         let seq = state.build_sequence_with_options(cli.octaves, true)?;
         let smf = seq.to_midi();
         let mut midi_buffer = Vec::new();
         smf.write_std(&mut midi_buffer)?;
-        let midi_bytes = add_tempo_to_midi_bytes(&midi_buffer, cli.bpm);
+        let midi_bytes = prepare_midi_bytes(&midi_buffer, cli.bpm, cli.instrument);
 
         let mut file = File::create(output_path)?;
         file.write_all(&midi_bytes)?;
@@ -1400,8 +1413,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let demo_mode =
         cli.scale.is_none() && cli.root.is_none() && cli.pattern.is_none() && cli.groove.is_none();
 
-    if demo_mode || cli.seed.is_some() || cli.variation > 0 {
-        run_demo_mode(soundfont, cli.octaves, cli.bpm, cli.seed, cli.variation)?;
+    if demo_mode || cli.seed.is_some() || cli.variation > 0 || cli.instrument.is_some() {
+        run_demo_mode(soundfont, cli.octaves, cli.bpm, cli.seed, cli.variation, cli.instrument)?;
     } else {
         let scale_name = cli.scale.unwrap_or_else(|| "major".to_string());
         let root = if let Some(ref r) = cli.root {
