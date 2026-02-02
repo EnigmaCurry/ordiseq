@@ -7,7 +7,8 @@ use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use scale_omnibus::{get_scale, get_scale_names};
-use std::io::{self, BufRead};
+use std::fs::File;
+use std::io::{self, BufRead, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
@@ -344,6 +345,10 @@ struct Cli {
     /// Variation index (used with --seed to reproduce exact state)
     #[arg(long, default_value = "0")]
     variation: u32,
+
+    /// Export MIDI to file instead of playing (requires --seed)
+    #[arg(long)]
+    output: Option<String>,
 
     /// List available grooves and exit
     #[arg(long)]
@@ -1227,6 +1232,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for groove in all_grooves() {
             println!("  {}", groove.name);
         }
+        return Ok(());
+    }
+
+    // Export MIDI to file
+    if let Some(ref output_path) = cli.output {
+        let seed = cli.seed.ok_or("--output requires --seed to be specified")?;
+        let grooves = all_grooves();
+
+        let state = PlayState::from_seed(seed, cli.variation, &grooves)
+            .ok_or_else(|| format!("Could not generate state for seed {}", seed))?;
+
+        state.display();
+
+        let seq = state.build_sequence(cli.octaves)?;
+        let smf = seq.to_midi();
+        let mut midi_buffer = Vec::new();
+        smf.write_std(&mut midi_buffer)?;
+        let midi_bytes = add_tempo_to_midi_bytes(&midi_buffer, cli.bpm);
+
+        let mut file = File::create(output_path)?;
+        file.write_all(&midi_bytes)?;
+        println!("Exported to: {}", output_path);
         return Ok(());
     }
 
