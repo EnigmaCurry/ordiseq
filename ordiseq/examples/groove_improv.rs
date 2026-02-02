@@ -1473,14 +1473,26 @@ impl PlayState {
         Ok(seq)
     }
 
-    fn display_with_instruments(&self, lead: Option<u8>, bass: Option<u8>, mute_lead: bool, mute_bass: bool) {
+    fn display_full(
+        &self,
+        lead: Option<u8>,
+        bass: Option<u8>,
+        mute_lead: bool,
+        mute_bass: bool,
+        bpm: u32,
+        fill: f32,
+        strum: u32,
+        octaves: u32,
+    ) {
         let scale = get_scale(&self.scale_name).unwrap();
 
-        // Build the command line args
-        let mut args = format!("--seed {}", self.seed);
-        if self.variation_index != 0 {
-            args.push_str(&format!(" --variation {}", self.variation_index));
-        }
+        // Find pattern index
+        let pattern_idx = ALL_PATTERNS.iter().position(|&p| p == self.pattern).unwrap_or(0);
+
+        // Build complete command line args (always show all)
+        let mut args = format!("--seed {} --variation {}", self.seed, self.variation_index);
+        args.push_str(&format!(" --bpm {} --fill {:.2} --strum {} --octaves {}", bpm, fill, strum, octaves));
+        args.push_str(&format!(" -p {:?} -g \"{}\"", self.pattern, self.groove.name));
         if let Some(prog) = lead {
             args.push_str(&format!(" --lead {}", prog));
         }
@@ -1505,9 +1517,10 @@ impl PlayState {
         println!("Lead: {}{} | Bass: {}{}", lead_name, lead_status, bass_name, bass_status);
 
         println!(
-            "Scale: {} | Root: {} | Pattern: {:?} | Groove: {}",
+            "Scale: {} | Root: {} | Pattern: {} ({:?}) | Groove: {}",
             scale.name,
             note_name(&self.root),
+            pattern_idx,
             self.pattern,
             self.groove.name
         );
@@ -1658,7 +1671,7 @@ fn run_demo_mode(
                 state.pattern = ALL_PATTERNS[idx % ALL_PATTERNS.len()];
             }
 
-            state.display_with_instruments(current_lead, current_bass, mute_lead, mute_bass);
+            state.display_full(current_lead, current_bass, mute_lead, mute_bass, bpm, fill, strum_ticks, octaves);
             println!("  (looping - Enter=new, j/k, g/p, il/ib, ml/mb, b=bpm, f=fill, #=seed, q=quit)");
 
             // Build the sequence and convert to MIDI bytes with tempo and instruments
@@ -1934,7 +1947,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let state = PlayState::from_seed(seed, cli.variation, &grooves)
             .ok_or_else(|| format!("Could not generate state for seed {}", seed))?;
 
-        state.display_with_instruments(cli.lead, cli.bass, false, false);
+        state.display_full(cli.lead, cli.bass, false, false, cli.bpm, cli.fill, cli.strum, cli.octaves);
         // Use clean export variation for perfect looping
         let seq = state.build_sequence_with_options(cli.octaves, cli.strum, cli.fill, true)?;
         let smf = seq.to_midi();
