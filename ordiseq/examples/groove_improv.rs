@@ -1,5 +1,5 @@
 use clap::{Parser, ValueEnum};
-use midly::{MetaMessage, Smf, TrackEvent, TrackEventKind};
+use midly::{MetaMessage, MidiMessage, Smf, TrackEvent, TrackEventKind};
 use ordiseq::midi::HasMidiValue;
 use ordiseq::prelude::*;
 use ordiseq::synth::{SoundFontSource, PREFERRED_SOUNDFONTS};
@@ -427,7 +427,67 @@ fn bpm_to_tempo(bpm: u32) -> u32 {
     60_000_000 / bpm
 }
 
+/// General MIDI instrument names (0-127)
+const GM_INSTRUMENTS: [&str; 128] = [
+    // Piano (0-7)
+    "Acoustic Grand Piano", "Bright Acoustic Piano", "Electric Grand Piano", "Honky-tonk Piano",
+    "Electric Piano 1", "Electric Piano 2", "Harpsichord", "Clavinet",
+    // Chromatic Percussion (8-15)
+    "Celesta", "Glockenspiel", "Music Box", "Vibraphone",
+    "Marimba", "Xylophone", "Tubular Bells", "Dulcimer",
+    // Organ (16-23)
+    "Drawbar Organ", "Percussive Organ", "Rock Organ", "Church Organ",
+    "Reed Organ", "Accordion", "Harmonica", "Tango Accordion",
+    // Guitar (24-31)
+    "Acoustic Guitar (nylon)", "Acoustic Guitar (steel)", "Electric Guitar (jazz)", "Electric Guitar (clean)",
+    "Electric Guitar (muted)", "Overdriven Guitar", "Distortion Guitar", "Guitar Harmonics",
+    // Bass (32-39)
+    "Acoustic Bass", "Electric Bass (finger)", "Electric Bass (pick)", "Fretless Bass",
+    "Slap Bass 1", "Slap Bass 2", "Synth Bass 1", "Synth Bass 2",
+    // Strings (40-47)
+    "Violin", "Viola", "Cello", "Contrabass",
+    "Tremolo Strings", "Pizzicato Strings", "Orchestral Harp", "Timpani",
+    // Ensemble (48-55)
+    "String Ensemble 1", "String Ensemble 2", "Synth Strings 1", "Synth Strings 2",
+    "Choir Aahs", "Voice Oohs", "Synth Voice", "Orchestra Hit",
+    // Brass (56-63)
+    "Trumpet", "Trombone", "Tuba", "Muted Trumpet",
+    "French Horn", "Brass Section", "Synth Brass 1", "Synth Brass 2",
+    // Reed (64-71)
+    "Soprano Sax", "Alto Sax", "Tenor Sax", "Baritone Sax",
+    "Oboe", "English Horn", "Bassoon", "Clarinet",
+    // Pipe (72-79)
+    "Piccolo", "Flute", "Recorder", "Pan Flute",
+    "Blown Bottle", "Shakuhachi", "Whistle", "Ocarina",
+    // Synth Lead (80-87)
+    "Lead 1 (square)", "Lead 2 (sawtooth)", "Lead 3 (calliope)", "Lead 4 (chiff)",
+    "Lead 5 (charang)", "Lead 6 (voice)", "Lead 7 (fifths)", "Lead 8 (bass + lead)",
+    // Synth Pad (88-95)
+    "Pad 1 (new age)", "Pad 2 (warm)", "Pad 3 (polysynth)", "Pad 4 (choir)",
+    "Pad 5 (bowed)", "Pad 6 (metallic)", "Pad 7 (halo)", "Pad 8 (sweep)",
+    // Synth Effects (96-103)
+    "FX 1 (rain)", "FX 2 (soundtrack)", "FX 3 (crystal)", "FX 4 (atmosphere)",
+    "FX 5 (brightness)", "FX 6 (goblins)", "FX 7 (echoes)", "FX 8 (sci-fi)",
+    // Ethnic (104-111)
+    "Sitar", "Banjo", "Shamisen", "Koto",
+    "Kalimba", "Bagpipe", "Fiddle", "Shanai",
+    // Percussive (112-119)
+    "Tinkle Bell", "Agogo", "Steel Drums", "Woodblock",
+    "Taiko Drum", "Melodic Tom", "Synth Drum", "Reverse Cymbal",
+    // Sound Effects (120-127)
+    "Guitar Fret Noise", "Breath Noise", "Seashore", "Bird Tweet",
+    "Telephone Ring", "Helicopter", "Applause", "Gunshot",
+];
+
+fn gm_instrument_name(program: u8) -> &'static str {
+    GM_INSTRUMENTS[program as usize]
+}
+
 fn add_tempo_to_midi_bytes(midi_bytes: &[u8], bpm: u32) -> Vec<u8> {
+    prepare_midi_bytes(midi_bytes, bpm, None)
+}
+
+fn prepare_midi_bytes(midi_bytes: &[u8], bpm: u32, program: Option<u8>) -> Vec<u8> {
     let tempo_us = bpm_to_tempo(bpm);
 
     let smf = Smf::parse(midi_bytes).expect("Failed to parse MIDI");
@@ -437,15 +497,26 @@ fn add_tempo_to_midi_bytes(midi_bytes: &[u8], bpm: u32) -> Vec<u8> {
 
     for track in smf_owned.tracks {
         let mut new_track: Vec<TrackEvent<'static>> = Vec::new();
-        let mut tempo_added = false;
+        let mut header_added = false;
 
         for event in track {
-            if !tempo_added && !new_track.is_empty() {
+            if !header_added && !new_track.is_empty() {
+                // Add tempo
                 new_track.push(TrackEvent {
                     delta: 0.into(),
                     kind: TrackEventKind::Meta(MetaMessage::Tempo(tempo_us.into())),
                 });
-                tempo_added = true;
+                // Add program change if specified
+                if let Some(prog) = program {
+                    new_track.push(TrackEvent {
+                        delta: 0.into(),
+                        kind: TrackEventKind::Midi {
+                            channel: 0.into(),
+                            message: MidiMessage::ProgramChange { program: prog.into() },
+                        },
+                    });
+                }
+                header_added = true;
             }
 
             new_track.push(event);
@@ -1103,7 +1174,7 @@ fn run_demo_mode(
     println!("Using SoundFont: {}", soundfont.path().display());
     println!("\n=== IMPROV DEMO MODE ===");
     println!("Loops continuously. Commands are processed immediately.");
-    println!("Commands: (Enter)=next | n=new scale | b=back | s=stop | q=quit | <seed>=jump");
+    println!("Commands: (Enter)=next | n=new scale | i=instrument | b=back | s=stop | q=quit | <seed>=jump");
     println!("BPM: {}\n", bpm);
 
     let player = Arc::new(Player::new(soundfont)?);
@@ -1118,6 +1189,9 @@ fn run_demo_mode(
     // Generate initial seed
     let mut current_seed = initial_seed.unwrap_or_else(|| rand::thread_rng().gen());
     let mut variation_index = initial_variation;
+
+    // Current GM instrument (None = default piano)
+    let mut current_instrument: Option<u8> = None;
 
     // Current audio thread handle and stop flag
     let mut audio_handle: Option<thread::JoinHandle<()>> = None;
@@ -1148,14 +1222,17 @@ fn run_demo_mode(
             };
 
             state.display();
-            println!("  (looping - Enter=next, n=new scale, b=back, s=stop, q=quit, <seed>=jump)");
+            if let Some(prog) = current_instrument {
+                println!("Instrument: {} ({})", prog, gm_instrument_name(prog));
+            }
+            println!("  (looping - Enter=next, n=new scale, i=instrument, b=back, s=stop, q=quit)");
 
-            // Build the sequence and convert to MIDI bytes with tempo
+            // Build the sequence and convert to MIDI bytes with tempo and instrument
             let seq = state.build_sequence(octaves)?;
             let smf = seq.to_midi();
             let mut midi_buffer = Vec::new();
             smf.write_std(&mut midi_buffer)?;
-            let midi_bytes = add_tempo_to_midi_bytes(&midi_buffer, bpm);
+            let midi_bytes = prepare_midi_bytes(&midi_buffer, bpm, current_instrument);
 
             // Start new audio loop
             stop_flag = Arc::new(AtomicBool::new(false));
@@ -1204,6 +1281,13 @@ fn run_demo_mode(
                 } else {
                     println!("  (no history to go back to)");
                 }
+            }
+            "i" | "instrument" => {
+                // Random GM instrument
+                let prog: u8 = rand::thread_rng().gen_range(0..128);
+                current_instrument = Some(prog);
+                println!("\n  -> Instrument: {} ({})", prog, gm_instrument_name(prog));
+                need_new_audio = true;
             }
             "s" | "stop" => {
                 // Stop playback but keep waiting for input
