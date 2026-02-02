@@ -714,6 +714,19 @@ impl SectionVariation {
             double_time_loop_chance: 0.15,
         }
     }
+
+    /// Clean variation for export - no timing changes, predictable loop
+    fn for_export(loops: u32) -> Self {
+        Self {
+            loops,
+            drop_chance: 0.0,           // No dropped notes
+            octave_shift_chance: 0.08,  // Keep some octave variation
+            velocity_wobble: 0.08,      // Subtle velocity humanization
+            dynamic_shape: DynamicShape::Steady, // No dynamic shape changes
+            double_time_chance: 0.0,    // No double-time
+            double_time_loop_chance: 0.0, // No double-time loops
+        }
+    }
 }
 
 /// Calculate dynamic multiplier based on position in section
@@ -967,6 +980,16 @@ impl PlayState {
 
     /// Build and return the sequence for this state
     fn build_sequence(&self, octaves: u32) -> Result<Sequence, Box<dyn std::error::Error>> {
+        self.build_sequence_with_options(octaves, None)
+    }
+
+    /// Build sequence with export options
+    /// If export_loops is Some, uses clean variation for perfect looping
+    fn build_sequence_with_options(
+        &self,
+        octaves: u32,
+        export_loops: Option<u32>,
+    ) -> Result<Sequence, Box<dyn std::error::Error>> {
         let scale_notes = get_scale_notes(&self.scale_name)?;
         let scale = get_scale(&self.scale_name)?;
 
@@ -980,7 +1003,11 @@ impl PlayState {
         let base_notes = build_base_notes(&self.root, &scale_notes, octaves);
         let pattern_notes = apply_pattern(&mut rng, &base_notes, self.pattern);
 
-        let variation = SectionVariation::random(&mut rng);
+        let variation = if let Some(loops) = export_loops {
+            SectionVariation::for_export(loops)
+        } else {
+            SectionVariation::random(&mut rng)
+        };
         let steps = apply_groove_with_variation(&mut rng, &pattern_notes, &self.groove, &variation);
         add_steps_to_sequence(&mut seq, &steps, 0);
 
@@ -1244,8 +1271,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .ok_or_else(|| format!("Could not generate state for seed {}", seed))?;
 
         state.display();
+        println!("Exporting {} groove loops (clean loop mode)", cli.loops);
 
-        let seq = state.build_sequence(cli.octaves)?;
+        // Use clean export variation for perfect looping
+        let seq = state.build_sequence_with_options(cli.octaves, Some(cli.loops))?;
         let smf = seq.to_midi();
         let mut midi_buffer = Vec::new();
         smf.write_std(&mut midi_buffer)?;
