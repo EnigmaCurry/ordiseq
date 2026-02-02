@@ -62,3 +62,7 @@ required-features = ["synth"]
 [[example]]
 name = "groove_improv"
 required-features = ["synth"]
+
+[[example]]
+name = "chord_prog"
+required-features = ["synth"]
