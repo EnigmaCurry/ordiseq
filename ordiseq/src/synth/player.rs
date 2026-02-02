@@ -6,6 +6,7 @@ use crate::sequence::Sequence;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rustysynth::{MidiFile, MidiFileSequencer, Synthesizer, SynthesizerSettings};
 use std::io::Cursor;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Audio player for MIDI sequences.
@@ -146,6 +147,124 @@ impl Player {
 
         log::info!("Playback complete.");
         Ok(())
+    }
+
+    /// Play raw MIDI data with a stop flag for early termination.
+    ///
+    /// This blocks until playback is complete or the stop flag is set.
+    /// Returns `Ok(true)` if playback completed normally, `Ok(false)` if stopped early.
+    pub fn play_midi_bytes_stoppable(
+        &self,
+        midi_data: &[u8],
+        stop_flag: &Arc<AtomicBool>,
+    ) -> Result<bool, SynthError> {
+        // Load the MIDI from the buffer
+        let mut midi_cursor = Cursor::new(midi_data);
+        let midi_file = Arc::new(
+            MidiFile::new(&mut midi_cursor)
+                .map_err(|e| SynthError::MidiParseError(e.to_string()))?,
+        );
+        let duration_seconds = midi_file.get_length();
+
+        // Set up audio output
+        let host = cpal::default_host();
+        let device = host
+            .default_output_device()
+            .ok_or(SynthError::NoAudioDevice)?;
+
+        let device_name = device
+            .name()
+            .map_err(|e| SynthError::DeviceNameError(e.to_string()))?;
+        log::info!("Using audio device: {}", device_name);
+
+        let config = device
+            .default_output_config()
+            .map_err(|e| SynthError::DefaultConfigError(e.to_string()))?;
+
+        let sample_rate = config.sample_rate().0 as i32;
+        let channels = config.channels() as usize;
+
+        log::info!(
+            "Playing {:.2} seconds of audio ({}Hz, {} channels)",
+            duration_seconds,
+            sample_rate,
+            channels
+        );
+
+        // Create the synthesizer and sequencer
+        let settings = SynthesizerSettings::new(sample_rate);
+        let synthesizer = Synthesizer::new(self.soundfont.inner(), &settings)
+            .map_err(|e| SynthError::MidiParseError(e.to_string()))?;
+        let mut sequencer = MidiFileSequencer::new(synthesizer);
+        sequencer.play(&midi_file, false);
+
+        // Wrap sequencer in Arc<Mutex> for sharing with audio callback
+        let sequencer = Arc::new(Mutex::new(sequencer));
+        let sequencer_clone = Arc::clone(&sequencer);
+
+        // Track playback completion
+        let samples_played = Arc::new(Mutex::new(0usize));
+        let samples_played_clone = Arc::clone(&samples_played);
+        let total_samples = (sample_rate as f64 * duration_seconds) as usize;
+
+        // Build the audio stream
+        let stream = device
+            .build_output_stream(
+                &config.into(),
+                move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                    let mut seq = sequencer_clone.lock().unwrap();
+                    let frames = data.len() / channels;
+
+                    // Render audio from the synthesizer
+                    let mut left = vec![0f32; frames];
+                    let mut right = vec![0f32; frames];
+                    seq.render(&mut left, &mut right);
+
+                    // Interleave into output buffer
+                    for (i, (l, r)) in left.iter().zip(right.iter()).enumerate() {
+                        let base = i * channels;
+                        if channels >= 2 {
+                            data[base] = *l;
+                            data[base + 1] = *r;
+                        } else {
+                            // Mono: mix left and right
+                            data[base] = (*l + *r) / 2.0;
+                        }
+                    }
+
+                    // Track progress
+                    let mut played = samples_played_clone.lock().unwrap();
+                    *played += frames;
+                },
+                |err| log::error!("Audio stream error: {}", err),
+                None,
+            )
+            .map_err(|e| SynthError::StreamBuildError(e.to_string()))?;
+
+        stream
+            .play()
+            .map_err(|e| SynthError::StreamPlayError(e.to_string()))?;
+
+        // Wait for playback to complete or stop flag
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+
+            // Check stop flag
+            if stop_flag.load(Ordering::Relaxed) {
+                log::info!("Playback stopped early.");
+                return Ok(false);
+            }
+
+            let played = *samples_played.lock().unwrap();
+            if played >= total_samples {
+                // Add a small buffer to let the last samples play out
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                break;
+            }
+        }
+
+        log::info!("Playback complete.");
+        Ok(true)
     }
 }
 

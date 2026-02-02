@@ -1009,7 +1009,7 @@ fn spawn_input_thread() -> Receiver<String> {
     rx
 }
 
-/// Audio playback loop that runs in background, checking stop flag between loops
+/// Audio playback loop that runs in background, checking stop flag during playback
 fn spawn_audio_loop(
     player: Arc<Player>,
     midi_bytes: Vec<u8>,
@@ -1017,8 +1017,11 @@ fn spawn_audio_loop(
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         while !stop_flag.load(Ordering::Relaxed) {
-            if player.play_midi_bytes(&midi_bytes).is_err() {
-                break;
+            // Use stoppable version that checks flag during playback
+            match player.play_midi_bytes_stoppable(&midi_bytes, &stop_flag) {
+                Ok(false) => break, // Stopped early
+                Err(_) => break,    // Error
+                Ok(true) => {}      // Completed normally, loop again
             }
         }
     })

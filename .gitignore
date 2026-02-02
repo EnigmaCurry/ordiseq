@@ -4,3 +4,5 @@
 /*.profdata
 *.mid
 ordiseq_plug/target
+.claude/
+.#*
