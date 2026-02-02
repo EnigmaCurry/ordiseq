@@ -427,6 +427,35 @@ fn note_name(note: &Note) -> String {
     format!("{:?}{}", note.named_pitch(), note.octave() as u8)
 }
 
+/// Build a triad from scale degrees (root, 3rd, 5th)
+fn build_scale_triad(root: &Note, scale_notes: &[u8]) -> Vec<Note> {
+    let mut chord = vec![root.clone()];
+    // Get 3rd (index 2 in scale) and 5th (index 4 in scale)
+    if scale_notes.len() > 2 {
+        if let Ok(third) = midi_to_note(root.midi_value().saturating_add(scale_notes[2])) {
+            chord.push(third);
+        }
+    }
+    if scale_notes.len() > 4 {
+        if let Ok(fifth) = midi_to_note(root.midi_value().saturating_add(scale_notes[4])) {
+            chord.push(fifth);
+        }
+    }
+    chord
+}
+
+/// Build an augmented chord (root, major 3rd +4, augmented 5th +8)
+fn build_augmented_chord(root: &Note) -> Vec<Note> {
+    let mut chord = vec![root.clone()];
+    if let Ok(third) = midi_to_note(root.midi_value().saturating_add(4)) {
+        chord.push(third);
+    }
+    if let Ok(fifth) = midi_to_note(root.midi_value().saturating_add(8)) {
+        chord.push(fifth);
+    }
+    chord
+}
+
 fn bpm_to_tempo(bpm: u32) -> u32 {
     60_000_000 / bpm
 }
@@ -983,6 +1012,50 @@ fn add_steps_to_sequence(
     current_ticks
 }
 
+/// Add alternating chord progression (root triad <-> augmented) over the sequence
+fn add_chord_progression(
+    seq: &mut Sequence,
+    root: &Note,
+    scale_notes: &[u8],
+    start_ticks: u32,
+    end_ticks: u32,
+    chord_duration_beats: f32,
+    velocity: f32,
+) {
+    let time_sig = seq.time_signature();
+    let chord_duration = time_sig.beat_time(chord_duration_beats);
+    let release = 0.9;
+
+    // Build the two alternating chords
+    // Use root an octave lower for fuller sound
+    let bass_root = shift_octave(root, -1).unwrap_or_else(|| root.clone());
+    let root_triad = build_scale_triad(&bass_root, scale_notes);
+    let aug_chord = build_augmented_chord(&bass_root);
+
+    let mut current_ticks = start_ticks;
+    let mut use_root = true;
+
+    while current_ticks < end_ticks {
+        let time = Time { ticks: current_ticks };
+        let remaining = end_ticks - current_ticks;
+        let actual_duration_ticks = chord_duration.ticks.min(remaining);
+        let actual_duration = Time { ticks: actual_duration_ticks };
+
+        let chord_notes = if use_root { &root_triad } else { &aug_chord };
+
+        // Add chord as multiple notes with same start time
+        let chord_data: Vec<(Note, f32, Time)> = chord_notes
+            .iter()
+            .map(|n| (n.clone(), velocity, actual_duration * release))
+            .collect();
+
+        seq.add_chord(time, chord_data);
+
+        current_ticks += chord_duration.ticks;
+        use_root = !use_root;
+    }
+}
+
 fn get_scale_notes(scale_name: &str) -> Result<Vec<u8>, String> {
     let scale = get_scale(scale_name).map_err(|e| e.to_string())?;
 
@@ -1134,7 +1207,19 @@ impl PlayState {
             })
             .collect();
 
-        add_steps_to_sequence(&mut seq, &reversed_steps, midpoint);
+        let end_ticks = add_steps_to_sequence(&mut seq, &reversed_steps, midpoint);
+
+        // Add alternating chord progression (root triad <-> augmented)
+        // Chords change every 2 beats for harmonic movement
+        add_chord_progression(
+            &mut seq,
+            &self.root,
+            &scale_notes,
+            0,
+            end_ticks,
+            2.0,  // chord changes every 2 beats
+            0.5,  // softer than melody
+        );
 
         Ok(seq)
     }
