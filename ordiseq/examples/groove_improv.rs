@@ -1443,7 +1443,7 @@ fn run_demo_mode(
     println!("Using SoundFont: {}", soundfont.path().display());
     println!("\n=== IMPROV DEMO MODE ===");
     println!("Loops continuously. Commands are processed immediately.");
-    println!("Commands: (Enter)=new | j=next | k=prev | il/ib=instr | ml/mb=mute | b[N]=bpm | s=stop | q=quit");
+    println!("Commands: (Enter)=new | j/k=next/prev | g/p=groove/pattern | il/ib=instr | ml/mb=mute | b=bpm | #=seed | q=quit");
     println!("BPM: {}\n", bpm);
 
     // Make bpm mutable for runtime changes
@@ -1470,6 +1470,10 @@ fn run_demo_mode(
     let mut mute_lead = initial_mute_lead;
     let mut mute_bass = initial_mute_bass;
 
+    // Override groove/pattern (None = use seed-derived values)
+    let mut groove_override: Option<usize> = None;
+    let mut pattern_override: Option<usize> = None;
+
     // Current audio thread handle and stop flag
     let mut audio_handle: Option<thread::JoinHandle<()>> = None;
     let mut stop_flag = Arc::new(AtomicBool::new(false));
@@ -1491,15 +1495,23 @@ fn run_demo_mode(
             }
 
             // Find a valid state (some scales don't have notes)
-            let state = loop {
+            let mut state = loop {
                 if let Some(s) = PlayState::from_seed(current_seed, variation_index, &grooves) {
                     break s;
                 }
                 current_seed = current_seed.wrapping_add(1);
             };
 
+            // Apply overrides
+            if let Some(idx) = groove_override {
+                state.groove = grooves[idx % grooves.len()].clone();
+            }
+            if let Some(idx) = pattern_override {
+                state.pattern = ALL_PATTERNS[idx % ALL_PATTERNS.len()];
+            }
+
             state.display_with_instruments(current_lead, current_bass, mute_lead, mute_bass);
-            println!("  (looping - Enter=new, j=next, k=prev, il/ib=instr, ml/mb=mute, b=bpm, s=stop, q=quit)");
+            println!("  (looping - Enter=new, j/k=next/prev, g/p=groove/pattern, il/ib, ml/mb, b=bpm, #=seed, q=quit)");
 
             // Build the sequence and convert to MIDI bytes with tempo and instruments
             let seq = state.build_sequence(octaves, strum_ticks, fill)?;
@@ -1600,6 +1612,44 @@ fn run_demo_mode(
                     };
                     bpm = new_bpm;
                     println!("\n  -> BPM: {}", bpm);
+                    need_new_audio = true;
+                }
+                // Check for g (groove) command
+                else if cmd == "g" || cmd.starts_with("g ") || cmd.starts_with("g") && cmd.len() > 1 && cmd[1..].chars().next().map_or(false, |c| c.is_ascii_digit()) {
+                    let num_str = cmd.strip_prefix("g").unwrap().trim();
+                    let idx: usize = if num_str.is_empty() {
+                        rand::thread_rng().gen_range(0..grooves.len())
+                    } else if let Ok(n) = num_str.parse::<usize>() {
+                        if n >= grooves.len() {
+                            println!("  Groove must be 0-{}", grooves.len() - 1);
+                            continue;
+                        }
+                        n
+                    } else {
+                        println!("  Invalid groove index");
+                        continue;
+                    };
+                    groove_override = Some(idx);
+                    println!("\n  -> Groove: {} ({})", idx, grooves[idx].name);
+                    need_new_audio = true;
+                }
+                // Check for p (pattern) command
+                else if cmd == "p" || cmd.starts_with("p ") || cmd.starts_with("p") && cmd.len() > 1 && cmd[1..].chars().next().map_or(false, |c| c.is_ascii_digit()) {
+                    let num_str = cmd.strip_prefix("p").unwrap().trim();
+                    let idx: usize = if num_str.is_empty() {
+                        rand::thread_rng().gen_range(0..ALL_PATTERNS.len())
+                    } else if let Ok(n) = num_str.parse::<usize>() {
+                        if n >= ALL_PATTERNS.len() {
+                            println!("  Pattern must be 0-{}", ALL_PATTERNS.len() - 1);
+                            continue;
+                        }
+                        n
+                    } else {
+                        println!("  Invalid pattern index");
+                        continue;
+                    };
+                    pattern_override = Some(idx);
+                    println!("\n  -> Pattern: {} ({:?})", idx, ALL_PATTERNS[idx]);
                     need_new_audio = true;
                 }
                 // Check for il (lead instrument) command
