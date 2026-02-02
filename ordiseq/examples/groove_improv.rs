@@ -1443,8 +1443,11 @@ fn run_demo_mode(
     println!("Using SoundFont: {}", soundfont.path().display());
     println!("\n=== IMPROV DEMO MODE ===");
     println!("Loops continuously. Commands are processed immediately.");
-    println!("Commands: (Enter)=next | n=new scale | il[N]=lead | ib[N]=bass | ml/mb=mute | b=back | s=stop | q=quit");
+    println!("Commands: (Enter)=new | j=next | k=prev | il/ib=instr | ml/mb=mute | b[N]=bpm | s=stop | q=quit");
     println!("BPM: {}\n", bpm);
+
+    // Make bpm mutable for runtime changes
+    let mut bpm = bpm;
 
     let player = Arc::new(Player::new(soundfont)?);
     let grooves = all_grooves();
@@ -1496,7 +1499,7 @@ fn run_demo_mode(
             };
 
             state.display_with_instruments(current_lead, current_bass, mute_lead, mute_bass);
-            println!("  (looping - Enter=next, n=new, il/ib=instr, ml/mb=mute, b=back, s=stop, q=quit)");
+            println!("  (looping - Enter=new, j=next, k=prev, il/ib=instr, ml/mb=mute, b=bpm, s=stop, q=quit)");
 
             // Build the sequence and convert to MIDI bytes with tempo and instruments
             let seq = state.build_sequence(octaves, strum_ticks, fill)?;
@@ -1527,19 +1530,19 @@ fn run_demo_mode(
         // Process command immediately
         match cmd.as_str() {
             "" => {
-                // Enter: next variation of same scale
-                println!("\n  -> Next variation...");
-                variation_index += 1;
-                need_new_audio = true;
-            }
-            "n" | "next" => {
-                // New scale (new seed)
+                // Enter: new scale (new seed)
                 println!("\n  -> New scale...");
                 current_seed = rand::thread_rng().gen();
                 variation_index = 0;
                 need_new_audio = true;
             }
-            "b" | "back" => {
+            "j" | "next" => {
+                // Next variation of same scale
+                println!("\n  -> Next variation...");
+                variation_index += 1;
+                need_new_audio = true;
+            }
+            "k" | "prev" | "back" => {
                 // Go back
                 if history.len() > 1 {
                     history.pop(); // Remove current
@@ -1580,8 +1583,27 @@ fn run_demo_mode(
                 return Ok(());
             }
             _ => {
+                // Check for b (BPM) command
+                if cmd == "b" || cmd.starts_with("b ") || cmd.starts_with("b") && cmd.len() > 1 && cmd[1..].chars().next().map_or(false, |c| c.is_ascii_digit()) {
+                    let num_str = cmd.strip_prefix("b").unwrap().trim();
+                    let new_bpm: u32 = if num_str.is_empty() {
+                        rand::thread_rng().gen_range(30..=200)
+                    } else if let Ok(n) = num_str.parse::<u32>() {
+                        if n < 30 || n > 200 {
+                            println!("  BPM must be 30-200");
+                            continue;
+                        }
+                        n
+                    } else {
+                        println!("  Invalid BPM");
+                        continue;
+                    };
+                    bpm = new_bpm;
+                    println!("\n  -> BPM: {}", bpm);
+                    need_new_audio = true;
+                }
                 // Check for il (lead instrument) command
-                if cmd == "il" || cmd.starts_with("il ") || cmd.starts_with("il") && cmd[2..].chars().next().map_or(false, |c| c.is_ascii_digit()) {
+                else if cmd == "il" || cmd.starts_with("il ") || cmd.starts_with("il") && cmd.len() > 2 && cmd[2..].chars().next().map_or(false, |c| c.is_ascii_digit()) {
                     let num_str = cmd.strip_prefix("il").unwrap().trim();
                     let prog: u8 = if num_str.is_empty() {
                         rand::thread_rng().gen_range(0..128)
@@ -1600,7 +1622,7 @@ fn run_demo_mode(
                     need_new_audio = true;
                 }
                 // Check for ib (bass instrument) command
-                else if cmd == "ib" || cmd.starts_with("ib ") || cmd.starts_with("ib") && cmd[2..].chars().next().map_or(false, |c| c.is_ascii_digit()) {
+                else if cmd == "ib" || cmd.starts_with("ib ") || cmd.starts_with("ib") && cmd.len() > 2 && cmd[2..].chars().next().map_or(false, |c| c.is_ascii_digit()) {
                     let num_str = cmd.strip_prefix("ib").unwrap().trim();
                     let prog: u8 = if num_str.is_empty() {
                         rand::thread_rng().gen_range(0..128)
@@ -1625,7 +1647,7 @@ fn run_demo_mode(
                     variation_index = 0;
                     need_new_audio = true;
                 } else {
-                    println!("  Unknown command '{}'. Use Enter, n, il, ib, b, s, q, or a seed number", cmd);
+                    println!("  Unknown command '{}'. Use Enter, j, k, il, ib, b, ml, mb, s, q, or a seed", cmd);
                 }
             }
         }
