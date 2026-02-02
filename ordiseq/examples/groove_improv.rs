@@ -399,6 +399,18 @@ struct Cli {
     #[arg(long)]
     hat: Option<String>,
 
+    /// Drum tempo scale (1 = normal, 2 = double speed, /2 = half speed)
+    #[arg(long, default_value = "1")]
+    dt: String,
+
+    /// Lead tempo scale (1 = normal, 2 = double speed, /2 = half speed)
+    #[arg(long, default_value = "1")]
+    lt: String,
+
+    /// Bass tempo scale (1 = normal, 2 = double speed, /2 = half speed)
+    #[arg(long, default_value = "1")]
+    bt: String,
+
     /// Export MIDI to file instead of playing (requires --seed)
     #[arg(long)]
     output: Option<String>,
@@ -409,6 +421,22 @@ struct Cli {
 
     /// Path to a SoundFont file (searches system directories if not provided)
     soundfont: Option<String>,
+}
+
+/// Parse tempo scale string: "1" = 1.0, "2" = 2.0, "/2" = 0.5, "/3" = 0.333...
+fn parse_tempo_scale(s: &str) -> Result<f32, String> {
+    let s = s.trim();
+    if s.starts_with('/') {
+        // Fraction like "/2" means 1/2
+        let denom: f32 = s[1..].parse().map_err(|_| format!("Invalid tempo scale: {}", s))?;
+        if denom == 0.0 {
+            return Err("Tempo scale denominator cannot be zero".to_string());
+        }
+        Ok(1.0 / denom)
+    } else {
+        // Integer or float like "1", "2", "0.5"
+        s.parse().map_err(|_| format!("Invalid tempo scale: {}", s))
+    }
 }
 
 fn parse_root_note(s: &str) -> Result<Note, String> {
@@ -548,10 +576,6 @@ const GM_INSTRUMENTS: [&str; 128] = [
 
 fn gm_instrument_name(program: u8) -> &'static str {
     GM_INSTRUMENTS[program as usize]
-}
-
-fn add_tempo_to_midi_bytes(midi_bytes: &[u8], bpm: u32) -> Vec<u8> {
-    prepare_midi_bytes(midi_bytes, bpm, None, None, false, false)
 }
 
 fn prepare_midi_bytes(
@@ -903,19 +927,6 @@ impl SectionVariation {
         }
     }
 
-    fn for_single_mode(loops: u32, fill: f32) -> Self {
-        let fill = fill.clamp(0.0, 1.0);
-        Self {
-            loops,
-            drop_chance: 0.05,
-            octave_shift_chance: 0.08,
-            velocity_wobble: 0.1,
-            dynamic_shape: DynamicShape::Wave,
-            double_time_chance: 0.02 + fill * 0.38,
-            double_time_loop_chance: 0.05 + fill * 0.45,
-        }
-    }
-
     /// Variation for export - keeps most variations but ensures predictable note count
     fn for_export<R: Rng>(rng: &mut R, loops: u32, fill: f32) -> Self {
         let fill = fill.clamp(0.0, 1.0);
@@ -1218,17 +1229,21 @@ fn apply_groove_with_variation<R: Rng>(
 }
 
 /// Add resolved steps to a sequence, returning the end position
+/// tempo_scale: 1.0 = normal, 2.0 = double speed (half duration), 0.5 = half speed
 fn add_steps_to_sequence(
     seq: &mut Sequence,
     steps: &[ResolvedStep],
     start_ticks: u32,
+    tempo_scale: f32,
 ) -> u32 {
     let time_sig = seq.time_signature();
     let release = 0.85;
     let mut current_ticks = start_ticks;
 
     for step in steps {
-        let duration = time_sig.beat_time(step.duration_beats);
+        // Scale duration by tempo (higher = faster = shorter duration)
+        let scaled_beats = step.duration_beats / tempo_scale;
+        let duration = time_sig.beat_time(scaled_beats);
 
         if let Some(ref note) = step.note {
             let time = Time { ticks: current_ticks };
@@ -1236,7 +1251,7 @@ fn add_steps_to_sequence(
             seq.add_note(time, note.clone(), step.velocity, note_duration);
         }
         // Always advance time (rests advance time without adding notes)
-        current_ticks += duration.ticks;
+        current_ticks += duration.ticks.max(1);
     }
 
     current_ticks
@@ -1279,6 +1294,9 @@ fn random_drum_pattern<R: Rng>(rng: &mut R, density: f32) -> String {
 }
 
 /// Add drum pattern to sequence
+/// Pattern loops every bar. Each hex digit = 4 subdivisions (16th notes).
+/// 4 hex digits = 16 subdivisions = 1 bar in 4/4.
+/// tempo_scale: 1.0 = normal, 2.0 = double speed, 0.5 = half speed
 fn add_drum_pattern(
     seq: &mut Sequence,
     pattern: &str,
@@ -1286,33 +1304,48 @@ fn add_drum_pattern(
     start_ticks: u32,
     end_ticks: u32,
     velocity: f32,
+    tempo_scale: f32,
 ) -> Result<(), String> {
     let beats = parse_drum_pattern(pattern)?;
     if beats.is_empty() {
         return Ok(());
     }
 
-    let total_ticks = end_ticks - start_ticks;
-    let ticks_per_step = total_ticks / beats.len() as u32;
+    let time_sig = seq.time_signature();
+    // Each hex digit = 1 beat worth of subdivisions (4 per beat)
+    // ticks per subdivision = ticks per beat / 4, scaled by tempo
+    // Higher tempo_scale = faster = fewer ticks per subdivision
+    let base_ticks = time_sig.ticks_per_quarter_note / 4;
+    let ticks_per_subdivision = (base_ticks as f32 / tempo_scale).round() as u32;
 
     let drum_midi = drum_note;
-    let duration_ticks = (ticks_per_step as f32 * 0.5) as u32; // Short drum hits
+    let duration_ticks = (ticks_per_subdivision as f32 * 0.5) as u32; // Short drum hits
 
     let mut current_ticks = start_ticks;
     let mut beat_idx = 0;
+
+    // Offset drums to avoid BTreeMap key collisions with lead/bass notes
+    // (Sequence uses BTreeMap<Time, Element> so only one note per tick)
+    // Base offset of 5 ticks separates from melody, then +1 per drum type
+    let drum_offset: u32 = 5 + match drum_note {
+        DRUM_KICK => 0,
+        DRUM_SNARE => 1,
+        DRUM_HAT => 2,
+        _ => 3,
+    };
 
     while current_ticks < end_ticks {
         if beats[beat_idx % beats.len()] {
             let note = midi_to_note(drum_midi).map_err(|e| format!("{:?}", e))?;
             seq.add_note_on_channel(
-                Time { ticks: current_ticks },
+                Time { ticks: current_ticks + drum_offset },
                 note,
                 velocity,
                 Time { ticks: duration_ticks.max(1) },
                 DRUM_CHANNEL,
             );
         }
-        current_ticks += ticks_per_step;
+        current_ticks += ticks_per_subdivision.max(1);
         beat_idx += 1;
     }
 
@@ -1327,15 +1360,17 @@ fn add_drums_to_sequence(
     hat: &str,
     start_ticks: u32,
     end_ticks: u32,
+    tempo_scale: f32,
 ) -> Result<(), String> {
-    add_drum_pattern(seq, kick, DRUM_KICK, start_ticks, end_ticks, 0.9)?;
-    add_drum_pattern(seq, snare, DRUM_SNARE, start_ticks, end_ticks, 0.85)?;
-    add_drum_pattern(seq, hat, DRUM_HAT, start_ticks, end_ticks, 0.7)?;
+    add_drum_pattern(seq, kick, DRUM_KICK, start_ticks, end_ticks, 0.9, tempo_scale)?;
+    add_drum_pattern(seq, snare, DRUM_SNARE, start_ticks, end_ticks, 0.85, tempo_scale)?;
+    add_drum_pattern(seq, hat, DRUM_HAT, start_ticks, end_ticks, 0.7, tempo_scale)?;
     Ok(())
 }
 
 /// Add alternating chord progression (root triad <-> augmented) over the sequence
 /// with optional strum effect (notes played with slight time offsets)
+/// tempo_scale: 1.0 = normal, 2.0 = double speed, 0.5 = half speed
 fn add_chord_progression<R: Rng>(
     seq: &mut Sequence,
     rng: &mut R,
@@ -1346,9 +1381,12 @@ fn add_chord_progression<R: Rng>(
     chord_duration_beats: f32,
     velocity: f32,
     strum_ticks: u32,
+    tempo_scale: f32,
 ) {
     let time_sig = seq.time_signature();
-    let chord_duration = time_sig.beat_time(chord_duration_beats);
+    // Scale chord duration (higher tempo = faster = shorter duration)
+    let scaled_beats = chord_duration_beats / tempo_scale;
+    let chord_duration = time_sig.beat_time(scaled_beats);
     let release = 0.9;
 
     // Build the two alternating chords
@@ -1439,22 +1477,6 @@ fn load_soundfont(path: Option<&String>) -> Result<SoundFontSource, Box<dyn std:
     }
 }
 
-fn play_sequence_with_bpm(
-    player: &Player,
-    sequence: &Sequence,
-    bpm: u32,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let smf = sequence.to_midi();
-
-    let mut midi_buffer = Vec::new();
-    smf.write_std(&mut midi_buffer)?;
-
-    let midi_with_tempo = add_tempo_to_midi_bytes(&midi_buffer, bpm);
-
-    player.play_midi_bytes(&midi_with_tempo)?;
-    Ok(())
-}
-
 /// State for a single playable variation
 #[derive(Clone)]
 struct PlayState {
@@ -1495,9 +1517,45 @@ impl PlayState {
         })
     }
 
+    /// Generate a new state with optional scale/root overrides
+    fn from_seed_with_overrides(
+        seed: u64,
+        variation_index: u32,
+        grooves: &[Groove],
+        scale_override: Option<&str>,
+        root_override: Option<Note>,
+    ) -> Option<Self> {
+        // Use seed to deterministically generate scale and root (as fallback)
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+
+        let scale_name = scale_override
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| random_scale_name(&mut rng));
+        let root = root_override.unwrap_or_else(|| random_root_note(&mut rng));
+
+        // Verify scale has notes
+        if get_scale_notes(&scale_name).is_err() {
+            return None;
+        }
+
+        // Use variation_index to pick pattern and groove deterministically
+        let mut var_rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(variation_index as u64 * 1000));
+        let pattern = random_pattern(&mut var_rng);
+        let groove = random_groove(&mut var_rng, grooves);
+
+        Some(Self {
+            seed,
+            variation_index,
+            scale_name,
+            root,
+            pattern,
+            groove,
+        })
+    }
+
     /// Build and return the sequence for this state
-    fn build_sequence(&self, octaves: u32, strum_ticks: u32, fill: f32, kick: &str, snare: &str, hat: &str) -> Result<Sequence, Box<dyn std::error::Error>> {
-        self.build_sequence_with_options(octaves, strum_ticks, fill, kick, snare, hat, false)
+    fn build_sequence(&self, octaves: u32, strum_ticks: u32, fill: f32, kick: &str, snare: &str, hat: &str, dt: f32, lt: f32, bt: f32) -> Result<Sequence, Box<dyn std::error::Error>> {
+        self.build_sequence_with_options(octaves, strum_ticks, fill, kick, snare, hat, dt, lt, bt, false)
     }
 
     /// Build sequence with export options
@@ -1510,6 +1568,9 @@ impl PlayState {
         kick: &str,
         snare: &str,
         hat: &str,
+        dt: f32,  // drum tempo scale
+        lt: f32,  // lead tempo scale
+        bt: f32,  // bass tempo scale
         export: bool,
     ) -> Result<Sequence, Box<dyn std::error::Error>> {
         let scale_notes = get_scale_notes(&self.scale_name)?;
@@ -1538,8 +1599,8 @@ impl PlayState {
         };
         let forward_steps = apply_groove_with_variation(&mut rng, &pattern_notes, &self.groove, &variation, fill);
 
-        // Add forward steps
-        let midpoint = add_steps_to_sequence(&mut seq, &forward_steps, 0);
+        // Add forward steps (with lead tempo scale)
+        let midpoint = add_steps_to_sequence(&mut seq, &forward_steps, 0, lt);
 
         // Mirror: reverse the notes but keep the rhythm (durations/velocities) forward
         // Collect just the notes in reverse order
@@ -1561,7 +1622,7 @@ impl PlayState {
             })
             .collect();
 
-        let end_ticks = add_steps_to_sequence(&mut seq, &reversed_steps, midpoint);
+        let end_ticks = add_steps_to_sequence(&mut seq, &reversed_steps, midpoint, lt);
 
         // Add alternating chord progression (root triad <-> augmented)
         // Chords change every 2 beats for harmonic movement
@@ -1575,11 +1636,12 @@ impl PlayState {
             2.0,  // chord changes every 2 beats
             0.5,  // softer than melody
             strum_ticks,
+            bt,   // bass tempo scale
         );
 
         // Add drum patterns
         if !kick.is_empty() || !snare.is_empty() || !hat.is_empty() {
-            add_drums_to_sequence(&mut seq, kick, snare, hat, 0, end_ticks)
+            add_drums_to_sequence(&mut seq, kick, snare, hat, 0, end_ticks, dt)
                 .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
         }
 
@@ -1599,6 +1661,9 @@ impl PlayState {
         kick: &str,
         snare: &str,
         hat: &str,
+        dt: &str,
+        lt: &str,
+        bt: &str,
     ) {
         let scale = get_scale(&self.scale_name).unwrap();
         let pattern_lower = format!("{:?}", self.pattern).to_lowercase();
@@ -1611,6 +1676,9 @@ impl PlayState {
         let mut args = format!("-s \"{}\" -r {}", self.scale_name, note_name(&self.root));
         args.push_str(&format!(" -p {} -g \"{}\"", pattern_lower, self.groove.name));
         args.push_str(&format!(" --bpm {} --fill {:.2} --strum {} --octaves {}", bpm, fill, strum, octaves));
+        if self.variation_index > 0 {
+            args.push_str(&format!(" --variation {}", self.variation_index));
+        }
         if let Some(prog) = lead {
             args.push_str(&format!(" --lead {}", prog));
         }
@@ -1624,14 +1692,24 @@ impl PlayState {
             args.push_str(" --mb");
         }
         // Add drum patterns
-        if !kick.is_empty() {
+        if !kick.is_empty() && kick != "0000" {
             args.push_str(&format!(" --kick {}", kick));
         }
-        if !snare.is_empty() {
+        if !snare.is_empty() && snare != "0000" {
             args.push_str(&format!(" --snare {}", snare));
         }
-        if !hat.is_empty() {
+        if !hat.is_empty() && hat != "0000" {
             args.push_str(&format!(" --hat {}", hat));
+        }
+        // Add tempo scales (only if not default)
+        if dt != "1" {
+            args.push_str(&format!(" --dt {}", dt));
+        }
+        if lt != "1" {
+            args.push_str(&format!(" --lt {}", lt));
+        }
+        if bt != "1" {
+            args.push_str(&format!(" --bt {}", bt));
         }
         println!("\n{}", args);
 
@@ -1645,7 +1723,7 @@ impl PlayState {
         println!("Lead: {}{} | Bass: {}{}", lead_name, lead_status, bass_name, bass_status);
 
         // Show drums info
-        println!("Drums: kick={} snare={} hat={}", kick, snare, hat);
+        println!("Drums: kick={} snare={} hat={} | Tempo: dt={} lt={} bt={}", kick, snare, hat, dt, lt, bt);
 
         println!(
             "Scale: {} | Root: {} | Pattern: {} ({}) | Groove: {}",
@@ -1733,11 +1811,18 @@ fn run_demo_mode(
     initial_kick: Option<String>,
     initial_snare: Option<String>,
     initial_hat: Option<String>,
+    initial_dt: String,
+    initial_lt: String,
+    initial_bt: String,
+    initial_groove: Option<usize>,
+    initial_pattern: Option<usize>,
+    initial_scale: Option<String>,
+    initial_root: Option<Note>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Using SoundFont: {}", soundfont.path().display());
     println!("\n=== IMPROV DEMO MODE ===");
     println!("Loops continuously. Commands are processed immediately.");
-    println!("Commands: (Enter)=new | j/k=next/prev | g/p=groove/pattern | il/ib=instr | ml/mb=mute | b=bpm | f=fill | dk/ds/dh=drums | #=seed | q=quit");
+    println!("Commands: (Enter)=new | j/k=next/prev | g/p=groove/pattern | il/ib=instr | ml/mb=mute | b=bpm | f=fill | dk/ds/dh=drums | dt/lt/bt=tempo | #=seed | q=quit");
     println!("BPM: {}\n", bpm);
 
     // Make bpm mutable for runtime changes
@@ -1770,9 +1855,18 @@ fn run_demo_mode(
     let mut current_snare = initial_snare.unwrap_or_else(|| "0000".to_string());
     let mut current_hat = initial_hat.unwrap_or_else(|| "0000".to_string());
 
+    // Tempo scales (as strings for display, parsed when needed)
+    let mut current_dt = initial_dt;
+    let mut current_lt = initial_lt;
+    let mut current_bt = initial_bt;
+
     // Override groove/pattern (None = use seed-derived values)
-    let mut groove_override: Option<usize> = None;
-    let mut pattern_override: Option<usize> = None;
+    let mut groove_override: Option<usize> = initial_groove;
+    let mut pattern_override: Option<usize> = initial_pattern;
+
+    // Scale and root overrides (persist across variations)
+    let scale_override: Option<String> = initial_scale;
+    let root_override: Option<Note> = initial_root;
 
     // Current audio thread handle and stop flag
     let mut audio_handle: Option<thread::JoinHandle<()>> = None;
@@ -1796,7 +1890,13 @@ fn run_demo_mode(
 
             // Find a valid state (some scales don't have notes)
             let mut state = loop {
-                if let Some(s) = PlayState::from_seed(current_seed, variation_index, &grooves) {
+                if let Some(s) = PlayState::from_seed_with_overrides(
+                    current_seed,
+                    variation_index,
+                    &grooves,
+                    scale_override.as_deref(),
+                    root_override.clone(),
+                ) {
                     break s;
                 }
                 current_seed = current_seed.wrapping_add(1);
@@ -1810,11 +1910,14 @@ fn run_demo_mode(
                 state.pattern = ALL_PATTERNS[idx % ALL_PATTERNS.len()];
             }
 
-            state.display_full(current_lead, current_bass, mute_lead, mute_bass, bpm, fill, strum_ticks, octaves, &current_kick, &current_snare, &current_hat);
-            println!("  (looping - Enter=new, j/k, g/p, il/ib, ml/mb, b=bpm, f=fill, dk/ds/dh=drums, #=seed, q=quit)");
+            state.display_full(current_lead, current_bass, mute_lead, mute_bass, bpm, fill, strum_ticks, octaves, &current_kick, &current_snare, &current_hat, &current_dt, &current_lt, &current_bt);
+            println!("  (looping - Enter=new, j/k, g/p, il/ib, ml/mb, b=bpm, f=fill, dk/ds/dh=drums, dt/lt/bt=tempo, #=seed, q=quit)");
 
             // Build the sequence and convert to MIDI bytes with tempo and instruments
-            let seq = state.build_sequence(octaves, strum_ticks, fill, &current_kick, &current_snare, &current_hat)?;
+            let dt_val = parse_tempo_scale(&current_dt).unwrap_or(1.0);
+            let lt_val = parse_tempo_scale(&current_lt).unwrap_or(1.0);
+            let bt_val = parse_tempo_scale(&current_bt).unwrap_or(1.0);
+            let seq = state.build_sequence(octaves, strum_ticks, fill, &current_kick, &current_snare, &current_hat, dt_val, lt_val, bt_val)?;
             let smf = seq.to_midi();
             let mut midi_buffer = Vec::new();
             smf.write_std(&mut midi_buffer)?;
@@ -2054,6 +2157,48 @@ fn run_demo_mode(
                     println!("\n  -> Hi-hat: {}", current_hat);
                     need_new_audio = true;
                 }
+                // Check for dt (drum tempo scale) command
+                else if cmd.starts_with("dt") {
+                    let scale_str = cmd.strip_prefix("dt").unwrap().trim();
+                    if scale_str.is_empty() {
+                        current_dt = "1".to_string();
+                    } else if parse_tempo_scale(scale_str).is_ok() {
+                        current_dt = scale_str.to_string();
+                    } else {
+                        println!("  Invalid tempo scale (use 1, 2, /2, /3, etc.)");
+                        continue;
+                    }
+                    println!("\n  -> Drum tempo: {}", current_dt);
+                    need_new_audio = true;
+                }
+                // Check for lt (lead tempo scale) command
+                else if cmd.starts_with("lt") {
+                    let scale_str = cmd.strip_prefix("lt").unwrap().trim();
+                    if scale_str.is_empty() {
+                        current_lt = "1".to_string();
+                    } else if parse_tempo_scale(scale_str).is_ok() {
+                        current_lt = scale_str.to_string();
+                    } else {
+                        println!("  Invalid tempo scale (use 1, 2, /2, /3, etc.)");
+                        continue;
+                    }
+                    println!("\n  -> Lead tempo: {}", current_lt);
+                    need_new_audio = true;
+                }
+                // Check for bt (bass tempo scale) command
+                else if cmd.starts_with("bt") {
+                    let scale_str = cmd.strip_prefix("bt").unwrap().trim();
+                    if scale_str.is_empty() {
+                        current_bt = "1".to_string();
+                    } else if parse_tempo_scale(scale_str).is_ok() {
+                        current_bt = scale_str.to_string();
+                    } else {
+                        println!("  Invalid tempo scale (use 1, 2, /2, /3, etc.)");
+                        continue;
+                    }
+                    println!("\n  -> Bass tempo: {}", current_bt);
+                    need_new_audio = true;
+                }
                 // Try to parse as a seed number
                 else if let Ok(new_seed) = cmd.parse::<u64>() {
                     println!("\n  -> Jumping to seed {}...", new_seed);
@@ -2061,49 +2206,11 @@ fn run_demo_mode(
                     variation_index = 0;
                     need_new_audio = true;
                 } else {
-                    println!("  Unknown command '{}'. Use Enter, j, k, il, ib, dk, ds, dh, b, ml, mb, f, s, q, or a seed", cmd);
+                    println!("  Unknown command '{}'. Use Enter, j, k, il, ib, dk, ds, dh, dt, lt, bt, b, ml, mb, f, s, q, or a seed", cmd);
                 }
             }
         }
     }
-}
-
-fn run_single_mode(
-    soundfont: SoundFontSource,
-    scale_name: &str,
-    root: Note,
-    pattern: ArpPattern,
-    groove: &Groove,
-    loops: u32,
-    octaves: u32,
-    bpm: u32,
-    fill: f32,
-) -> Result<(), Box<dyn std::error::Error>> {
-    println!("Using SoundFont: {}", soundfont.path().display());
-    println!("Root note: {} (MIDI {})", note_name(&root), root.midi_value());
-
-    let scale_notes = get_scale_notes(scale_name)?;
-    let scale = get_scale(scale_name)?;
-    println!("Scale: {} - notes: {:?}", scale.name, scale_notes);
-    println!(
-        "Pattern: {:?} | Groove: {} | Loops: {} | Octaves: {} | BPM: {}",
-        pattern, groove.name, loops, octaves, bpm
-    );
-
-    let time_signature = common_time();
-    let mut seq = Sequence::new(&format!("{} Improv", scale.name), time_signature)?;
-
-    let mut rng = rand::thread_rng();
-    let base_notes = build_base_notes(&root, &scale_notes, octaves);
-    let pattern_notes = apply_pattern(&mut rng, &base_notes, pattern);
-    let variation = SectionVariation::for_single_mode(loops, fill);
-    let steps = apply_groove_with_variation(&mut rng, &pattern_notes, groove, &variation, fill);
-    add_steps_to_sequence(&mut seq, &steps, 0);
-
-    let player = Player::new(soundfont)?;
-    play_sequence_with_bpm(&player, &seq, bpm)?;
-
-    Ok(())
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -2134,9 +2241,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let kick = cli.kick.clone().unwrap_or_else(|| "0000".to_string());
         let snare = cli.snare.clone().unwrap_or_else(|| "0000".to_string());
         let hat = cli.hat.clone().unwrap_or_else(|| "0000".to_string());
-        state.display_full(cli.lead, cli.bass, false, false, cli.bpm, cli.fill, cli.strum, cli.octaves, &kick, &snare, &hat);
+        let dt_val = parse_tempo_scale(&cli.dt).unwrap_or(1.0);
+        let lt_val = parse_tempo_scale(&cli.lt).unwrap_or(1.0);
+        let bt_val = parse_tempo_scale(&cli.bt).unwrap_or(1.0);
+        state.display_full(cli.lead, cli.bass, false, false, cli.bpm, cli.fill, cli.strum, cli.octaves, &kick, &snare, &hat, &cli.dt, &cli.lt, &cli.bt);
         // Use clean export variation for perfect looping
-        let seq = state.build_sequence_with_options(cli.octaves, cli.strum, cli.fill, &kick, &snare, &hat, true)?;
+        let seq = state.build_sequence_with_options(cli.octaves, cli.strum, cli.fill, &kick, &snare, &hat, dt_val, lt_val, bt_val, true)?;
         let smf = seq.to_midi();
         let mut midi_buffer = Vec::new();
         smf.write_std(&mut midi_buffer)?;
@@ -2151,41 +2261,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let soundfont = load_soundfont(cli.soundfont.as_ref())?;
     let grooves = all_grooves();
 
-    let demo_mode =
-        cli.scale.is_none() && cli.root.is_none() && cli.pattern.is_none() && cli.groove.is_none();
-
-    if demo_mode || cli.seed.is_some() || cli.variation > 0 || cli.lead.is_some() || cli.bass.is_some() {
-        run_demo_mode(soundfont, cli.octaves, cli.bpm, cli.strum, cli.fill, cli.seed, cli.variation, cli.lead, cli.bass, cli.ml, cli.mb, cli.kick, cli.snare, cli.hat)?;
+    // Resolve initial groove override index
+    let initial_groove: Option<usize> = if let Some(ref g) = cli.groove {
+        grooves
+            .iter()
+            .position(|gr| gr.name.eq_ignore_ascii_case(g))
+            .or_else(|| {
+                eprintln!("Warning: Unknown groove '{}'. Use --list-grooves to see options.", g);
+                None
+            })
     } else {
-        let scale_name = cli.scale.unwrap_or_else(|| "major".to_string());
-        let root = if let Some(ref r) = cli.root {
-            parse_root_note(r)?
-        } else {
-            parse_root_note("C4")?
-        };
-        let pattern = cli.pattern.unwrap_or(ArpPattern::Up);
-        let groove = if let Some(ref g) = cli.groove {
-            grooves
-                .iter()
-                .find(|gr| gr.name.eq_ignore_ascii_case(g))
-                .cloned()
-                .ok_or_else(|| format!("Unknown groove '{}'. Use --list-grooves to see options.", g))?
-        } else {
-            grooves[0].clone() // Default to first groove
-        };
+        None
+    };
 
-        run_single_mode(
-            soundfont,
-            &scale_name,
-            root,
-            pattern,
-            &groove,
-            cli.loops,
-            cli.octaves,
-            cli.bpm,
-            cli.fill,
-        )?;
-    }
+    // Resolve initial pattern override index
+    let initial_pattern: Option<usize> = cli.pattern.map(|p| {
+        ALL_PATTERNS.iter().position(|&pat| pat == p).unwrap_or(0)
+    });
+
+    // Parse root note if specified
+    let initial_root: Option<Note> = if let Some(ref r) = cli.root {
+        Some(parse_root_note(r)?)
+    } else {
+        None
+    };
+
+    // Always use demo mode - it handles all cases including scale/root overrides
+    run_demo_mode(soundfont, cli.octaves, cli.bpm, cli.strum, cli.fill, cli.seed, cli.variation, cli.lead, cli.bass, cli.ml, cli.mb, cli.kick, cli.snare, cli.hat, cli.dt, cli.lt, cli.bt, initial_groove, initial_pattern, cli.scale, initial_root)?;
 
     Ok(())
 }
