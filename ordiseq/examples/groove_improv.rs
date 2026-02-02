@@ -1443,11 +1443,12 @@ fn run_demo_mode(
     println!("Using SoundFont: {}", soundfont.path().display());
     println!("\n=== IMPROV DEMO MODE ===");
     println!("Loops continuously. Commands are processed immediately.");
-    println!("Commands: (Enter)=new | j/k=next/prev | g/p=groove/pattern | il/ib=instr | ml/mb=mute | b=bpm | #=seed | q=quit");
+    println!("Commands: (Enter)=new | j/k=next/prev | g/p=groove/pattern | il/ib=instr | ml/mb=mute | b=bpm | f=fill | #=seed | q=quit");
     println!("BPM: {}\n", bpm);
 
     // Make bpm mutable for runtime changes
     let mut bpm = bpm;
+    let mut fill = fill;
 
     let player = Arc::new(Player::new(soundfont)?);
     let grooves = all_grooves();
@@ -1511,7 +1512,7 @@ fn run_demo_mode(
             }
 
             state.display_with_instruments(current_lead, current_bass, mute_lead, mute_bass);
-            println!("  (looping - Enter=new, j/k=next/prev, g/p=groove/pattern, il/ib, ml/mb, b=bpm, #=seed, q=quit)");
+            println!("  (looping - Enter=new, j/k, g/p, il/ib, ml/mb, b=bpm, f=fill, #=seed, q=quit)");
 
             // Build the sequence and convert to MIDI bytes with tempo and instruments
             let seq = state.build_sequence(octaves, strum_ticks, fill)?;
@@ -1612,6 +1613,25 @@ fn run_demo_mode(
                     };
                     bpm = new_bpm;
                     println!("\n  -> BPM: {}", bpm);
+                    need_new_audio = true;
+                }
+                // Check for f (fill) command
+                else if cmd == "f" || cmd.starts_with("f ") || cmd.starts_with("f") && cmd.len() > 1 && cmd[1..].chars().next().map_or(false, |c| c.is_ascii_digit()) {
+                    let num_str = cmd.strip_prefix("f").unwrap().trim();
+                    let new_fill: f32 = if num_str.is_empty() {
+                        rand::thread_rng().gen_range(0.0..=1.0)
+                    } else if let Ok(n) = num_str.parse::<f32>() {
+                        if n < 0.0 || n > 1.0 {
+                            println!("  Fill must be 0.0-1.0");
+                            continue;
+                        }
+                        n
+                    } else {
+                        println!("  Invalid fill value");
+                        continue;
+                    };
+                    fill = new_fill;
+                    println!("\n  -> Fill: {:.2}", fill);
                     need_new_audio = true;
                 }
                 // Check for g (groove) command
