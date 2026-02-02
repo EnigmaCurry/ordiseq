@@ -4,9 +4,17 @@ use ordiseq::midi::HasMidiValue;
 use ordiseq::prelude::*;
 use ordiseq::synth::{SoundFontSource, PREFERRED_SOUNDFONTS};
 use rand::seq::SliceRandom;
-use rand::thread_rng;
-use rand::Rng;
+use rand::{Rng, SeedableRng};
+use rand_chacha::ChaCha8Rng;
 use scale_omnibus::{get_scale, get_scale_names};
+use std::io::{self, BufRead};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver};
+use std::sync::Arc;
+use std::thread;
+
+/// Minimum note duration in beats (prevents notes too short for soundfont to trigger)
+const MIN_NOTE_BEATS: f32 = 0.2;
 
 // Arpeggio patterns (same as scale_arp)
 const ALL_PATTERNS: [ArpPattern; 16] = [
@@ -293,7 +301,12 @@ fn all_grooves() -> Vec<Groove> {
 
 #[derive(Parser)]
 #[command(name = "groove_improv")]
-#[command(about = "Improvisational arpeggio player with rhythmic grooves. Run with no args for infinite demo mode.")]
+#[command(about = "Improvisational arpeggio player with rhythmic grooves.\n\n\
+Demo mode controls:\n  \
+Space     - Next variation of current scale\n  \
+Enter     - Next scale\n  \
+Backspace - Previous\n  \
+Esc       - Quit")]
 #[command(version)]
 struct Cli {
     /// Scale name (case-insensitive). If not specified, picks random scale for demo mode.
@@ -323,6 +336,10 @@ struct Cli {
     /// Tempo in beats per minute
     #[arg(short = 't', long, default_value = "90")]
     bpm: u32,
+
+    /// Seed for reproducible random generation (printed during demo mode)
+    #[arg(long)]
+    seed: Option<u64>,
 
     /// List available grooves and exit
     #[arg(long)]
@@ -359,26 +376,23 @@ fn note_from_midi_offset(root: &Note, semitones: u8) -> Note {
     midi_to_note(target_midi).expect("Note out of range")
 }
 
-fn random_root_note() -> Note {
-    let mut rng = thread_rng();
+fn random_root_note<R: Rng>(rng: &mut R) -> Note {
     let midi: u8 = rng.gen_range(48..=72);
     midi_to_note(midi).expect("Invalid random MIDI note")
 }
 
-fn random_scale_name() -> String {
-    let mut rng = thread_rng();
-    let names = get_scale_names();
-    names.choose(&mut rng).unwrap().clone()
+fn random_scale_name<R: Rng>(rng: &mut R) -> String {
+    let mut names = get_scale_names();
+    names.sort(); // Ensure deterministic order for seeded selection
+    names.choose(rng).unwrap().clone()
 }
 
-fn random_pattern() -> ArpPattern {
-    let mut rng = thread_rng();
-    *ALL_PATTERNS.choose(&mut rng).unwrap()
+fn random_pattern<R: Rng>(rng: &mut R) -> ArpPattern {
+    *ALL_PATTERNS.choose(rng).unwrap()
 }
 
-fn random_groove(grooves: &[Groove]) -> Groove {
-    let mut rng = thread_rng();
-    grooves.choose(&mut rng).unwrap().clone()
+fn random_groove<R: Rng>(rng: &mut R, grooves: &[Groove]) -> Groove {
+    grooves.choose(rng).unwrap().clone()
 }
 
 fn note_name(note: &Note) -> String {
@@ -441,7 +455,7 @@ fn build_base_notes(root: &Note, scale_notes: &[u8], octaves: u32) -> Vec<Note> 
 }
 
 /// Apply an arpeggio pattern to reorder notes
-fn apply_pattern(notes: &[Note], pattern: ArpPattern) -> Vec<Note> {
+fn apply_pattern<R: Rng>(rng: &mut R, notes: &[Note], pattern: ArpPattern) -> Vec<Note> {
     let n = notes.len();
     if n == 0 {
         return vec![];
@@ -469,7 +483,7 @@ fn apply_pattern(notes: &[Note], pattern: ArpPattern) -> Vec<Note> {
         }
         ArpPattern::Random => {
             let mut result = notes.to_vec();
-            result.shuffle(&mut thread_rng());
+            result.shuffle(rng);
             result
         }
         ArpPattern::Converge => {
@@ -589,7 +603,7 @@ fn apply_pattern(notes: &[Note], pattern: ArpPattern) -> Vec<Note> {
             result
         }
         ArpPattern::Spiral => {
-            let converged = apply_pattern(notes, ArpPattern::Converge);
+            let converged = apply_pattern(rng, notes, ArpPattern::Converge);
             let mut result = converged.clone();
             let mut diverged = converged;
             diverged.reverse();
@@ -648,6 +662,10 @@ struct SectionVariation {
     velocity_wobble: f32,
     /// Dynamic shape: "wave", "crescendo", "decrescendo", "steady"
     dynamic_shape: DynamicShape,
+    /// Chance of double-time (splitting a note into two fast notes)
+    double_time_chance: f32,
+    /// Chance of playing a whole loop in double-time
+    double_time_loop_chance: f32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -659,19 +677,20 @@ enum DynamicShape {
 }
 
 impl SectionVariation {
-    fn random() -> Self {
-        let mut rng = thread_rng();
+    fn random<R: Rng>(rng: &mut R) -> Self {
         Self {
             loops: rng.gen_range(12..=20),
-            drop_chance: rng.gen_range(0.02..0.12),
-            octave_shift_chance: rng.gen_range(0.05..0.15),
-            velocity_wobble: rng.gen_range(0.05..0.15),
+            drop_chance: rng.gen_range(0.02..0.10),
+            octave_shift_chance: rng.gen_range(0.05..0.12),
+            velocity_wobble: rng.gen_range(0.05..0.12),
             dynamic_shape: match rng.gen_range(0..4) {
                 0 => DynamicShape::Steady,
                 1 => DynamicShape::Wave,
                 2 => DynamicShape::Crescendo,
                 _ => DynamicShape::Decrescendo,
             },
+            double_time_chance: rng.gen_range(0.08..0.20),
+            double_time_loop_chance: rng.gen_range(0.10..0.25),
         }
     }
 
@@ -682,6 +701,8 @@ impl SectionVariation {
             octave_shift_chance: 0.08,
             velocity_wobble: 0.1,
             dynamic_shape: DynamicShape::Wave,
+            double_time_chance: 0.12,
+            double_time_loop_chance: 0.15,
         }
     }
 }
@@ -711,26 +732,33 @@ fn shift_octave(note: &Note, shift: i8) -> Option<Note> {
 }
 
 /// Apply a groove to a sequence of notes with variation
-fn apply_groove_with_variation(
+fn apply_groove_with_variation<R: Rng>(
+    rng: &mut R,
     notes: &[Note],
     groove: &Groove,
     variation: &SectionVariation,
 ) -> Vec<ResolvedStep> {
-    let mut rng = thread_rng();
     let mut result = Vec::new();
     let mut note_idx = 0;
 
     let total_steps = variation.loops as usize * groove.steps.len();
 
     for loop_num in 0..variation.loops {
+        // Check if this entire loop should be double-time
+        let loop_double_time = rng.gen::<f32>() < variation.double_time_loop_chance;
+        let time_scale = if loop_double_time { 0.5 } else { 1.0 };
+
         for (step_in_loop, step) in groove.steps.iter().enumerate() {
             let global_step = loop_num as usize * groove.steps.len() + step_in_loop;
             let progress = global_step as f32 / total_steps as f32;
 
+            // Apply time scale and enforce minimum duration
+            let step_beats = (step.beats * time_scale).max(MIN_NOTE_BEATS);
+
             if step.is_rest {
                 result.push(ResolvedStep {
                     note: None,
-                    duration_beats: step.beats,
+                    duration_beats: step_beats,
                     velocity: 0.0,
                 });
             } else {
@@ -738,34 +766,74 @@ fn apply_groove_with_variation(
                 if rng.gen::<f32>() < variation.drop_chance {
                     result.push(ResolvedStep {
                         note: None,
-                        duration_beats: step.beats,
+                        duration_beats: step_beats,
                         velocity: 0.0,
                     });
                     note_idx += 1;
                     continue;
                 }
 
-                let base_note = &notes[note_idx % notes.len()];
-
-                // Maybe shift octave
-                let note = if rng.gen::<f32>() < variation.octave_shift_chance {
-                    let shift = if rng.gen_bool(0.5) { 1 } else { -1 };
-                    shift_octave(base_note, shift).unwrap_or_else(|| base_note.clone())
-                } else {
-                    base_note.clone()
-                };
-
                 // Apply dynamics and humanization
                 let dyn_mult = dynamic_multiplier(variation.dynamic_shape, progress);
                 let wobble = 1.0 + rng.gen_range(-variation.velocity_wobble..variation.velocity_wobble);
                 let velocity = (step.velocity * dyn_mult * wobble).clamp(0.5, 1.0);
 
-                result.push(ResolvedStep {
-                    note: Some(note),
-                    duration_beats: step.beats,
-                    velocity,
-                });
-                note_idx += 1;
+                // Check for note-level double-time (split into two notes)
+                // Only if half duration would still be >= minimum
+                let half_duration = step_beats * 0.5;
+                let can_double_time = !loop_double_time && half_duration >= MIN_NOTE_BEATS;
+                let note_double_time = can_double_time && rng.gen::<f32>() < variation.double_time_chance;
+
+                if note_double_time {
+                    // Split into two fast notes
+                    // First note
+                    let base_note1 = &notes[note_idx % notes.len()];
+                    let note1 = if rng.gen::<f32>() < variation.octave_shift_chance {
+                        let shift = if rng.gen_bool(0.5) { 1 } else { -1 };
+                        shift_octave(base_note1, shift).unwrap_or_else(|| base_note1.clone())
+                    } else {
+                        base_note1.clone()
+                    };
+                    result.push(ResolvedStep {
+                        note: Some(note1),
+                        duration_beats: half_duration,
+                        velocity,
+                    });
+                    note_idx += 1;
+
+                    // Second note (next in sequence)
+                    let base_note2 = &notes[note_idx % notes.len()];
+                    let note2 = if rng.gen::<f32>() < variation.octave_shift_chance {
+                        let shift = if rng.gen_bool(0.5) { 1 } else { -1 };
+                        shift_octave(base_note2, shift).unwrap_or_else(|| base_note2.clone())
+                    } else {
+                        base_note2.clone()
+                    };
+                    // Second note slightly softer
+                    let velocity2 = (velocity * 0.85).clamp(0.5, 1.0);
+                    result.push(ResolvedStep {
+                        note: Some(note2),
+                        duration_beats: half_duration,
+                        velocity: velocity2,
+                    });
+                    note_idx += 1;
+                } else {
+                    // Normal single note
+                    let base_note = &notes[note_idx % notes.len()];
+                    let note = if rng.gen::<f32>() < variation.octave_shift_chance {
+                        let shift = if rng.gen_bool(0.5) { 1 } else { -1 };
+                        shift_octave(base_note, shift).unwrap_or_else(|| base_note.clone())
+                    } else {
+                        base_note.clone()
+                    };
+
+                    result.push(ResolvedStep {
+                        note: Some(note),
+                        duration_beats: step_beats,
+                        velocity,
+                    });
+                    note_idx += 1;
+                }
             }
         }
     }
@@ -848,63 +916,251 @@ fn play_sequence_with_bpm(
     Ok(())
 }
 
-fn run_demo_mode(
-    soundfont: SoundFontSource,
-    octaves: u32,
-    bpm: u32,
-) -> Result<(), Box<dyn std::error::Error>> {
-    println!("Using SoundFont: {}", soundfont.path().display());
-    println!("\n=== IMPROV DEMO MODE ===");
-    println!("Playing random scales with random patterns and grooves.");
-    println!("BPM: {} | Press Ctrl+C to stop.\n", bpm);
+/// State for a single playable variation
+#[derive(Clone)]
+struct PlayState {
+    seed: u64,
+    variation_index: u32,
+    scale_name: String,
+    root: Note,
+    pattern: ArpPattern,
+    groove: Groove,
+}
 
-    let player = Player::new(soundfont)?;
-    let grooves = all_grooves();
+impl PlayState {
+    /// Generate a new state from a seed and variation index
+    fn from_seed(seed: u64, variation_index: u32, grooves: &[Groove]) -> Option<Self> {
+        // Use seed to deterministically generate scale and root
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
 
-    loop {
-        let scale_name = random_scale_name();
-        let root = random_root_note();
+        let scale_name = random_scale_name(&mut rng);
+        let root = random_root_note(&mut rng);
 
-        let scale_notes = match get_scale_notes(&scale_name) {
-            Ok(notes) => notes,
-            Err(_) => continue,
-        };
-
-        let scale = get_scale(&scale_name)?;
-
-        // Pick 3 random pattern+groove combinations
-        let combos: Vec<(ArpPattern, Groove)> = (0..3)
-            .map(|_| (random_pattern(), random_groove(&grooves)))
-            .collect();
-
-        println!(
-            "Scale: {} | Root: {} | Octaves: {}",
-            scale.name,
-            note_name(&root),
-            octaves
-        );
-        for (i, (pattern, groove)) in combos.iter().enumerate() {
-            println!("  Section {}: {:?} + {}", i + 1, pattern, groove.name);
+        // Verify scale has notes
+        if get_scale_notes(&scale_name).is_err() {
+            return None;
         }
+
+        // Use variation_index to pick pattern and groove deterministically
+        let mut var_rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(variation_index as u64 * 1000));
+        let pattern = random_pattern(&mut var_rng);
+        let groove = random_groove(&mut var_rng, grooves);
+
+        Some(Self {
+            seed,
+            variation_index,
+            scale_name,
+            root,
+            pattern,
+            groove,
+        })
+    }
+
+    /// Build and return the sequence for this state
+    fn build_sequence(&self, octaves: u32) -> Result<Sequence, Box<dyn std::error::Error>> {
+        let scale_notes = get_scale_notes(&self.scale_name)?;
+        let scale = get_scale(&self.scale_name)?;
 
         let time_signature = common_time();
         let mut seq = Sequence::new(&format!("{} Improv", scale.name), time_signature)?;
 
-        let base_notes = build_base_notes(&root, &scale_notes, octaves);
-        let mut current_ticks = 0u32;
+        // Use deterministic RNG for the entire build
+        let var_seed = self.seed.wrapping_add(self.variation_index as u64 * 1000 + 500);
+        let mut rng = ChaCha8Rng::seed_from_u64(var_seed);
 
-        for (pattern, groove) in &combos {
-            let pattern_notes = apply_pattern(&base_notes, *pattern);
-            let variation = SectionVariation::random();
-            let steps = apply_groove_with_variation(&pattern_notes, groove, &variation);
-            current_ticks = add_steps_to_sequence(&mut seq, &steps, current_ticks);
+        let base_notes = build_base_notes(&self.root, &scale_notes, octaves);
+        let pattern_notes = apply_pattern(&mut rng, &base_notes, self.pattern);
+
+        let variation = SectionVariation::random(&mut rng);
+        let steps = apply_groove_with_variation(&mut rng, &pattern_notes, &self.groove, &variation);
+        add_steps_to_sequence(&mut seq, &steps, 0);
+
+        Ok(seq)
+    }
+
+    fn display(&self) {
+        let scale = get_scale(&self.scale_name).unwrap();
+        println!("\n--seed {} (variation {})", self.seed, self.variation_index);
+        println!(
+            "Scale: {} | Root: {} | Pattern: {:?} | Groove: {}",
+            scale.name,
+            note_name(&self.root),
+            self.pattern,
+            self.groove.name
+        );
+    }
+}
+
+/// Spawn a background thread that reads stdin and sends commands through a channel
+fn spawn_input_thread() -> Receiver<String> {
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let stdin = io::stdin();
+        loop {
+            let mut input = String::new();
+            if stdin.lock().read_line(&mut input).is_ok() {
+                let cmd = input.trim().to_lowercase();
+                if tx.send(cmd).is_err() {
+                    break; // Receiver dropped, exit thread
+                }
+            }
+        }
+    });
+    rx
+}
+
+/// Audio playback loop that runs in background, checking stop flag between loops
+fn spawn_audio_loop(
+    player: Arc<Player>,
+    midi_bytes: Vec<u8>,
+    stop_flag: Arc<AtomicBool>,
+) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        while !stop_flag.load(Ordering::Relaxed) {
+            if player.play_midi_bytes(&midi_bytes).is_err() {
+                break;
+            }
+        }
+    })
+}
+
+fn run_demo_mode(
+    soundfont: SoundFontSource,
+    octaves: u32,
+    bpm: u32,
+    initial_seed: Option<u64>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Using SoundFont: {}", soundfont.path().display());
+    println!("\n=== IMPROV DEMO MODE ===");
+    println!("Loops continuously. Commands are processed immediately.");
+    println!("Commands: (Enter)=next | n=new scale | b=back | s=stop | q=quit | <seed>=jump");
+    println!("BPM: {}\n", bpm);
+
+    let player = Arc::new(Player::new(soundfont)?);
+    let grooves = all_grooves();
+
+    // Start background input thread
+    let input_rx = spawn_input_thread();
+
+    // History stack for going back
+    let mut history: Vec<PlayState> = Vec::new();
+
+    // Generate initial seed
+    let mut current_seed = initial_seed.unwrap_or_else(|| rand::thread_rng().gen());
+    let mut variation_index = 0u32;
+
+    // Current audio thread handle and stop flag
+    let mut audio_handle: Option<thread::JoinHandle<()>> = None;
+    let mut stop_flag = Arc::new(AtomicBool::new(false));
+
+    // Start with first state
+    let mut need_new_audio = true;
+
+    loop {
+        if need_new_audio {
+            // Stop any existing audio and wait for it
+            stop_flag.store(true, Ordering::Relaxed);
+            if let Some(handle) = audio_handle.take() {
+                print!("  Stopping... ");
+                let _ = std::io::Write::flush(&mut std::io::stdout());
+                let _ = handle.join();
+                println!("done");
+                // Brief silence to clear the ears
+                thread::sleep(std::time::Duration::from_millis(400));
+            }
+
+            // Find a valid state (some scales don't have notes)
+            let state = loop {
+                if let Some(s) = PlayState::from_seed(current_seed, variation_index, &grooves) {
+                    break s;
+                }
+                current_seed = current_seed.wrapping_add(1);
+            };
+
+            state.display();
+            println!("  (looping - Enter=next, n=new scale, b=back, s=stop, q=quit, <seed>=jump)");
+
+            // Build the sequence and convert to MIDI bytes with tempo
+            let seq = state.build_sequence(octaves)?;
+            let smf = seq.to_midi();
+            let mut midi_buffer = Vec::new();
+            smf.write_std(&mut midi_buffer)?;
+            let midi_bytes = add_tempo_to_midi_bytes(&midi_buffer, bpm);
+
+            // Start new audio loop
+            stop_flag = Arc::new(AtomicBool::new(false));
+            audio_handle = Some(spawn_audio_loop(
+                Arc::clone(&player),
+                midi_bytes,
+                Arc::clone(&stop_flag),
+            ));
+
+            // Store state for history
+            history.push(PlayState::from_seed(current_seed, variation_index, &grooves).unwrap());
+            need_new_audio = false;
         }
 
-        print!("  Playing... ");
-        std::io::Write::flush(&mut std::io::stdout())?;
+        // Wait for a command (blocking)
+        let cmd = match input_rx.recv() {
+            Ok(cmd) => cmd,
+            Err(_) => "q".to_string(),
+        };
 
-        play_sequence_with_bpm(&player, &seq, bpm)?;
-        println!("done\n");
+        // Process command immediately
+        match cmd.as_str() {
+            "" => {
+                // Enter: next variation of same scale
+                println!("\n  -> Next variation...");
+                variation_index += 1;
+                need_new_audio = true;
+            }
+            "n" | "next" => {
+                // New scale (new seed)
+                println!("\n  -> New scale...");
+                current_seed = rand::thread_rng().gen();
+                variation_index = 0;
+                need_new_audio = true;
+            }
+            "b" | "back" => {
+                // Go back
+                if history.len() > 1 {
+                    history.pop(); // Remove current
+                    if let Some(prev) = history.last() {
+                        println!("\n  -> Going back...");
+                        current_seed = prev.seed;
+                        variation_index = prev.variation_index;
+                        need_new_audio = true;
+                    }
+                } else {
+                    println!("  (no history to go back to)");
+                }
+            }
+            "s" | "stop" => {
+                // Stop playback but keep waiting for input
+                println!("\n  -> Stopping playback...");
+                stop_flag.store(true, Ordering::Relaxed);
+                if let Some(handle) = audio_handle.take() {
+                    let _ = handle.join();
+                }
+                println!("  Stopped. Enter a command to resume.");
+            }
+            "q" | "quit" | "exit" => {
+                println!("\nExiting...");
+                stop_flag.store(true, Ordering::Relaxed);
+                return Ok(());
+            }
+            _ => {
+                // Try to parse as a seed number
+                if let Ok(new_seed) = cmd.parse::<u64>() {
+                    println!("\n  -> Jumping to seed {}...", new_seed);
+                    current_seed = new_seed;
+                    variation_index = 0;
+                    need_new_audio = true;
+                } else {
+                    println!("  Unknown command '{}'. Use Enter, n, b, s, q, or a seed number", cmd);
+                }
+            }
+        }
     }
 }
 
@@ -932,10 +1188,11 @@ fn run_single_mode(
     let time_signature = common_time();
     let mut seq = Sequence::new(&format!("{} Improv", scale.name), time_signature)?;
 
+    let mut rng = rand::thread_rng();
     let base_notes = build_base_notes(&root, &scale_notes, octaves);
-    let pattern_notes = apply_pattern(&base_notes, pattern);
+    let pattern_notes = apply_pattern(&mut rng, &base_notes, pattern);
     let variation = SectionVariation::for_single_mode(loops);
-    let steps = apply_groove_with_variation(&pattern_notes, groove, &variation);
+    let steps = apply_groove_with_variation(&mut rng, &pattern_notes, groove, &variation);
     add_steps_to_sequence(&mut seq, &steps, 0);
 
     let player = Player::new(soundfont)?;
@@ -945,6 +1202,10 @@ fn run_single_mode(
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Set log level to warn to reduce noise
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", "warn");
+    }
     setup_log();
 
     let cli = Cli::parse();
@@ -963,8 +1224,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let demo_mode =
         cli.scale.is_none() && cli.root.is_none() && cli.pattern.is_none() && cli.groove.is_none();
 
-    if demo_mode {
-        run_demo_mode(soundfont, cli.octaves, cli.bpm)?;
+    if demo_mode || cli.seed.is_some() {
+        run_demo_mode(soundfont, cli.octaves, cli.bpm, cli.seed)?;
     } else {
         let scale_name = cli.scale.unwrap_or_else(|| "major".to_string());
         let root = if let Some(ref r) = cli.root {
