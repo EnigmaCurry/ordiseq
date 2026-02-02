@@ -948,15 +948,165 @@ fn shift_octave(note: &Note, shift: i8) -> Option<Note> {
     }
 }
 
+/// Types of melodic fills for improvisation
+#[derive(Debug, Clone, Copy)]
+enum FillType {
+    /// Two notes: same note twice
+    DoubleHit,
+    /// Two notes: step below -> target
+    ApproachBelow,
+    /// Two notes: step above -> target
+    ApproachAbove,
+    /// Three notes (triplet): above -> below -> target
+    Enclosure,
+    /// Three notes: target -> neighbor -> target (mordent)
+    Mordent,
+    /// Four notes: quick scalar run up to target
+    RunUp,
+    /// Four notes: quick scalar run down to target
+    RunDown,
+}
+
+/// Generate a fill pattern around a target note
+/// Returns a vector of (note, relative_duration, velocity_scale)
+fn generate_fill<R: Rng>(
+    rng: &mut R,
+    fill_type: FillType,
+    target_note: &Note,
+    notes: &[Note],
+    note_idx: usize,
+    total_beats: f32,
+    base_velocity: f32,
+) -> Vec<(Note, f32, f32)> {
+    let n = notes.len();
+
+    // Helper to get neighbor notes from the scale
+    let get_below = |steps: usize| -> Note {
+        if note_idx >= steps {
+            notes[(note_idx - steps) % n].clone()
+        } else {
+            // Wrap around or use chromatic
+            let midi = target_note.midi_value().saturating_sub(steps as u8);
+            midi_to_note(midi.max(24)).unwrap_or_else(|_| target_note.clone())
+        }
+    };
+
+    let get_above = |steps: usize| -> Note {
+        notes[(note_idx + steps) % n].clone()
+    };
+
+    match fill_type {
+        FillType::DoubleHit => {
+            // Same note twice
+            let half = total_beats / 2.0;
+            vec![
+                (target_note.clone(), half, base_velocity),
+                (target_note.clone(), half, base_velocity * 0.85),
+            ]
+        }
+        FillType::ApproachBelow => {
+            // Step below -> target
+            let approach = get_below(1);
+            let half = total_beats / 2.0;
+            vec![
+                (approach, half, base_velocity * 0.8),
+                (target_note.clone(), half, base_velocity),
+            ]
+        }
+        FillType::ApproachAbove => {
+            // Step above -> target
+            let approach = get_above(1);
+            let half = total_beats / 2.0;
+            vec![
+                (approach, half, base_velocity * 0.8),
+                (target_note.clone(), half, base_velocity),
+            ]
+        }
+        FillType::Enclosure => {
+            // Above -> below -> target (triplet feel)
+            let above = get_above(1);
+            let below = get_below(1);
+            let third = total_beats / 3.0;
+            vec![
+                (above, third, base_velocity * 0.75),
+                (below, third, base_velocity * 0.75),
+                (target_note.clone(), third, base_velocity),
+            ]
+        }
+        FillType::Mordent => {
+            // Target -> neighbor -> target
+            let neighbor = if rng.gen_bool(0.5) { get_above(1) } else { get_below(1) };
+            let third = total_beats / 3.0;
+            vec![
+                (target_note.clone(), third, base_velocity),
+                (neighbor, third, base_velocity * 0.7),
+                (target_note.clone(), third, base_velocity * 0.9),
+            ]
+        }
+        FillType::RunUp => {
+            // Quick scalar run up to target (4 notes)
+            let quarter = total_beats / 4.0;
+            vec![
+                (get_below(3), quarter, base_velocity * 0.6),
+                (get_below(2), quarter, base_velocity * 0.7),
+                (get_below(1), quarter, base_velocity * 0.8),
+                (target_note.clone(), quarter, base_velocity),
+            ]
+        }
+        FillType::RunDown => {
+            // Quick scalar run down to target (4 notes)
+            let quarter = total_beats / 4.0;
+            vec![
+                (get_above(3), quarter, base_velocity * 0.6),
+                (get_above(2), quarter, base_velocity * 0.7),
+                (get_above(1), quarter, base_velocity * 0.8),
+                (target_note.clone(), quarter, base_velocity),
+            ]
+        }
+    }
+}
+
+/// Choose a random fill type based on fill density
+fn choose_fill_type<R: Rng>(rng: &mut R, fill: f32) -> FillType {
+    // Higher fill = more complex fills available
+    let choices: &[FillType] = if fill < 0.3 {
+        // Low fill: simple patterns
+        &[FillType::DoubleHit, FillType::ApproachBelow, FillType::ApproachAbove]
+    } else if fill < 0.6 {
+        // Medium fill: add enclosure and mordent
+        &[
+            FillType::DoubleHit,
+            FillType::ApproachBelow,
+            FillType::ApproachAbove,
+            FillType::Enclosure,
+            FillType::Mordent,
+        ]
+    } else {
+        // High fill: all patterns including runs
+        &[
+            FillType::DoubleHit,
+            FillType::ApproachBelow,
+            FillType::ApproachAbove,
+            FillType::Enclosure,
+            FillType::Mordent,
+            FillType::RunUp,
+            FillType::RunDown,
+        ]
+    };
+    choices[rng.gen_range(0..choices.len())]
+}
+
 /// Apply a groove to a sequence of notes with variation
 fn apply_groove_with_variation<R: Rng>(
     rng: &mut R,
     notes: &[Note],
     groove: &Groove,
     variation: &SectionVariation,
+    fill: f32,
 ) -> Vec<ResolvedStep> {
     let mut result = Vec::new();
     let mut note_idx = 0;
+    let fill = fill.clamp(0.0, 1.0);
 
     let total_steps = variation.loops as usize * groove.steps.len();
 
@@ -995,44 +1145,41 @@ fn apply_groove_with_variation<R: Rng>(
                 let wobble = 1.0 + rng.gen_range(-variation.velocity_wobble..variation.velocity_wobble);
                 let velocity = (step.velocity * dyn_mult * wobble).clamp(0.5, 1.0);
 
-                // Check for note-level double-time (split into two notes)
-                // Only if half duration would still be >= minimum
-                let half_duration = step_beats * 0.5;
-                let can_double_time = !loop_double_time && half_duration >= MIN_NOTE_BEATS;
-                let note_double_time = can_double_time && rng.gen::<f32>() < variation.double_time_chance;
+                // Check for melodic fill (improvised embellishment)
+                // Minimum duration for fills depends on fill type (need at least 2-4 subdivisions)
+                let quarter_duration = step_beats * 0.25;
+                let can_fill = !loop_double_time && quarter_duration >= MIN_NOTE_BEATS;
+                let do_fill = can_fill && rng.gen::<f32>() < variation.double_time_chance;
 
-                if note_double_time {
-                    // Split into two fast notes
-                    // First note
-                    let base_note1 = &notes[note_idx % notes.len()];
-                    let note1 = if rng.gen::<f32>() < variation.octave_shift_chance {
-                        let shift = if rng.gen_bool(0.5) { 1 } else { -1 };
-                        shift_octave(base_note1, shift).unwrap_or_else(|| base_note1.clone())
-                    } else {
-                        base_note1.clone()
-                    };
-                    result.push(ResolvedStep {
-                        note: Some(note1),
-                        duration_beats: half_duration,
+                if do_fill {
+                    // Generate an improvised fill pattern
+                    let target_note = &notes[note_idx % notes.len()];
+                    let fill_type = choose_fill_type(rng, fill);
+                    let fill_notes = generate_fill(
+                        rng,
+                        fill_type,
+                        target_note,
+                        notes,
+                        note_idx % notes.len(),
+                        step_beats,
                         velocity,
-                    });
-                    note_idx += 1;
+                    );
 
-                    // Second note (next in sequence)
-                    let base_note2 = &notes[note_idx % notes.len()];
-                    let note2 = if rng.gen::<f32>() < variation.octave_shift_chance {
-                        let shift = if rng.gen_bool(0.5) { 1 } else { -1 };
-                        shift_octave(base_note2, shift).unwrap_or_else(|| base_note2.clone())
-                    } else {
-                        base_note2.clone()
-                    };
-                    // Second note slightly softer
-                    let velocity2 = (velocity * 0.85).clamp(0.5, 1.0);
-                    result.push(ResolvedStep {
-                        note: Some(note2),
-                        duration_beats: half_duration,
-                        velocity: velocity2,
-                    });
+                    // Add all fill notes
+                    for (note, duration, vel) in fill_notes {
+                        // Maybe apply octave shift to fill notes
+                        let final_note = if rng.gen::<f32>() < variation.octave_shift_chance * 0.5 {
+                            let shift = if rng.gen_bool(0.5) { 1 } else { -1 };
+                            shift_octave(&note, shift).unwrap_or(note)
+                        } else {
+                            note
+                        };
+                        result.push(ResolvedStep {
+                            note: Some(final_note),
+                            duration_beats: duration.max(MIN_NOTE_BEATS),
+                            velocity: vel.clamp(0.4, 1.0),
+                        });
+                    }
                     note_idx += 1;
                 } else {
                     // Normal single note
@@ -1282,7 +1429,7 @@ impl PlayState {
         } else {
             SectionVariation::random(&mut rng, fill)
         };
-        let forward_steps = apply_groove_with_variation(&mut rng, &pattern_notes, &self.groove, &variation);
+        let forward_steps = apply_groove_with_variation(&mut rng, &pattern_notes, &self.groove, &variation, fill);
 
         // Add forward steps
         let midpoint = add_steps_to_sequence(&mut seq, &forward_steps, 0);
@@ -1753,7 +1900,7 @@ fn run_single_mode(
     let base_notes = build_base_notes(&root, &scale_notes, octaves);
     let pattern_notes = apply_pattern(&mut rng, &base_notes, pattern);
     let variation = SectionVariation::for_single_mode(loops, fill);
-    let steps = apply_groove_with_variation(&mut rng, &pattern_notes, groove, &variation);
+    let steps = apply_groove_with_variation(&mut rng, &pattern_notes, groove, &variation, fill);
     add_steps_to_sequence(&mut seq, &steps, 0);
 
     let player = Player::new(soundfont)?;
