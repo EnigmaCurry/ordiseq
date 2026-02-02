@@ -17,6 +17,21 @@ use std::thread;
 /// Minimum note duration in beats (prevents notes too short for soundfont to trigger)
 const MIN_NOTE_BEATS: f32 = 0.2;
 
+/// Greatest common divisor
+fn gcd(a: usize, b: usize) -> usize {
+    if b == 0 { a } else { gcd(b, a % b) }
+}
+
+/// Least common multiple
+fn lcm(a: usize, b: usize) -> usize {
+    if a == 0 || b == 0 { 0 } else { a * b / gcd(a, b) }
+}
+
+/// Calculate number of groove loops needed for pattern to align (perfect loop)
+fn loops_for_alignment(groove_steps: usize, pattern_notes: usize) -> usize {
+    lcm(groove_steps, pattern_notes) / groove_steps
+}
+
 // Arpeggio patterns (same as scale_arp)
 const ALL_PATTERNS: [ArpPattern; 16] = [
     ArpPattern::Up,
@@ -715,16 +730,21 @@ impl SectionVariation {
         }
     }
 
-    /// Clean variation for export - no timing changes, predictable loop
-    fn for_export(loops: u32) -> Self {
+    /// Variation for export - keeps most variations but ensures predictable note count
+    fn for_export<R: Rng>(rng: &mut R, loops: u32) -> Self {
         Self {
             loops,
-            drop_chance: 0.0,           // No dropped notes
-            octave_shift_chance: 0.08,  // Keep some octave variation
-            velocity_wobble: 0.08,      // Subtle velocity humanization
-            dynamic_shape: DynamicShape::Steady, // No dynamic shape changes
-            double_time_chance: 0.0,    // No double-time
-            double_time_loop_chance: 0.0, // No double-time loops
+            drop_chance: 0.0,           // No dropped notes (changes note count)
+            octave_shift_chance: rng.gen_range(0.05..0.12),
+            velocity_wobble: rng.gen_range(0.05..0.12),
+            dynamic_shape: match rng.gen_range(0..4) {
+                0 => DynamicShape::Steady,
+                1 => DynamicShape::Wave,
+                2 => DynamicShape::Crescendo,
+                _ => DynamicShape::Decrescendo,
+            },
+            double_time_chance: 0.0,    // No note-level double-time (adds extra notes)
+            double_time_loop_chance: rng.gen_range(0.10..0.25), // Keep loop double-time (just speeds up)
         }
     }
 }
@@ -980,15 +1000,15 @@ impl PlayState {
 
     /// Build and return the sequence for this state
     fn build_sequence(&self, octaves: u32) -> Result<Sequence, Box<dyn std::error::Error>> {
-        self.build_sequence_with_options(octaves, None)
+        self.build_sequence_with_options(octaves, false)
     }
 
     /// Build sequence with export options
-    /// If export_loops is Some, uses clean variation for perfect looping
+    /// If export is true, calculates loops for perfect alignment
     fn build_sequence_with_options(
         &self,
         octaves: u32,
-        export_loops: Option<u32>,
+        export: bool,
     ) -> Result<Sequence, Box<dyn std::error::Error>> {
         let scale_notes = get_scale_notes(&self.scale_name)?;
         let scale = get_scale(&self.scale_name)?;
@@ -1003,8 +1023,14 @@ impl PlayState {
         let base_notes = build_base_notes(&self.root, &scale_notes, octaves);
         let pattern_notes = apply_pattern(&mut rng, &base_notes, self.pattern);
 
-        let variation = if let Some(loops) = export_loops {
-            SectionVariation::for_export(loops)
+        let variation = if export {
+            // Count non-rest steps in groove (these consume notes)
+            let note_steps_per_loop = self.groove.steps.iter().filter(|s| !s.is_rest).count();
+            // Calculate loops needed for pattern to align perfectly
+            let aligned_loops = loops_for_alignment(note_steps_per_loop, pattern_notes.len());
+            // Use at least 1 loop, cap at reasonable maximum
+            let loops = aligned_loops.clamp(1, 32) as u32;
+            SectionVariation::for_export(&mut rng, loops)
         } else {
             SectionVariation::random(&mut rng)
         };
@@ -1271,10 +1297,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .ok_or_else(|| format!("Could not generate state for seed {}", seed))?;
 
         state.display();
-        println!("Exporting {} groove loops (clean loop mode)", cli.loops);
-
         // Use clean export variation for perfect looping
-        let seq = state.build_sequence_with_options(cli.octaves, Some(cli.loops))?;
+        let seq = state.build_sequence_with_options(cli.octaves, true)?;
         let smf = seq.to_midi();
         let mut midi_buffer = Vec::new();
         smf.write_std(&mut midi_buffer)?;
