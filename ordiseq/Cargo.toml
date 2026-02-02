@@ -44,6 +44,7 @@ scale_omnibus = { path = "../scale_omnibus" }
 rand = "0.8"
 rand_chacha = "0.3"
 midly = "0.5.3"
+rustyline = "15"
 
 [build-dependencies]
 clap = "4.5.53"

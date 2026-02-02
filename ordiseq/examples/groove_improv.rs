@@ -6,9 +6,11 @@ use ordiseq::synth::{SoundFontSource, PREFERRED_SOUNDFONTS};
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use rustyline::error::ReadlineError;
+use rustyline::DefaultEditor;
 use scale_omnibus::{get_scale, get_scale_names};
 use std::fs::File;
-use std::io::{self, BufRead, Write};
+use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
@@ -361,9 +363,21 @@ struct Cli {
     #[arg(long, default_value = "0")]
     variation: u32,
 
-    /// GM instrument number (0-127). Use 'i' in demo mode to randomize.
+    /// GM instrument for melody (0-127). Use 'il' in demo mode to change.
     #[arg(long)]
-    instrument: Option<u8>,
+    lead: Option<u8>,
+
+    /// GM instrument for bass/chords (0-127). Use 'ib' in demo mode to change.
+    #[arg(long)]
+    bass: Option<u8>,
+
+    /// Strum delay for bass chords in ticks (0 = no strum). Notes are offset by this amount with humanized variance.
+    #[arg(long, default_value = "12")]
+    strum: u32,
+
+    /// Fill density for lead (0.0 = sparse, 1.0 = dense double-time fills). Affects note density.
+    #[arg(long, default_value = "0.5")]
+    fill: f32,
 
     /// Export MIDI to file instead of playing (requires --seed)
     #[arg(long)]
@@ -517,10 +531,17 @@ fn gm_instrument_name(program: u8) -> &'static str {
 }
 
 fn add_tempo_to_midi_bytes(midi_bytes: &[u8], bpm: u32) -> Vec<u8> {
-    prepare_midi_bytes(midi_bytes, bpm, None)
+    prepare_midi_bytes(midi_bytes, bpm, None, None, false, false)
 }
 
-fn prepare_midi_bytes(midi_bytes: &[u8], bpm: u32, program: Option<u8>) -> Vec<u8> {
+fn prepare_midi_bytes(
+    midi_bytes: &[u8],
+    bpm: u32,
+    lead: Option<u8>,
+    bass: Option<u8>,
+    mute_lead: bool,
+    mute_bass: bool,
+) -> Vec<u8> {
     let tempo_us = bpm_to_tempo(bpm);
 
     let smf = Smf::parse(midi_bytes).expect("Failed to parse MIDI");
@@ -531,6 +552,8 @@ fn prepare_midi_bytes(midi_bytes: &[u8], bpm: u32, program: Option<u8>) -> Vec<u
     for track in smf_owned.tracks {
         let mut new_track: Vec<TrackEvent<'static>> = Vec::new();
         let mut header_added = false;
+        // Track accumulated delta for muted events
+        let mut accumulated_delta: u32 = 0;
 
         for event in track {
             if !header_added && !new_track.is_empty() {
@@ -539,8 +562,8 @@ fn prepare_midi_bytes(midi_bytes: &[u8], bpm: u32, program: Option<u8>) -> Vec<u
                     delta: 0.into(),
                     kind: TrackEventKind::Meta(MetaMessage::Tempo(tempo_us.into())),
                 });
-                // Add program change for channel 0 (melody) if specified
-                if let Some(prog) = program {
+                // Add program change for channel 0 (lead/melody)
+                if let Some(prog) = lead {
                     new_track.push(TrackEvent {
                         delta: 0.into(),
                         kind: TrackEventKind::Midi {
@@ -549,19 +572,40 @@ fn prepare_midi_bytes(midi_bytes: &[u8], bpm: u32, program: Option<u8>) -> Vec<u
                         },
                     });
                 }
-                // Add bass program change for channel 1 (chords)
-                // 33 = Electric Bass (finger)
+                // Add program change for channel 1 (bass/chords)
+                // Default to 33 = Electric Bass (finger) if not specified
+                let bass_prog = bass.unwrap_or(33);
                 new_track.push(TrackEvent {
                     delta: 0.into(),
                     kind: TrackEventKind::Midi {
                         channel: 1.into(),
-                        message: MidiMessage::ProgramChange { program: 33.into() },
+                        message: MidiMessage::ProgramChange { program: bass_prog.into() },
                     },
                 });
                 header_added = true;
             }
 
-            new_track.push(event);
+            // Check if this event should be muted (filter by channel)
+            let should_mute = match &event.kind {
+                TrackEventKind::Midi { channel, .. } => {
+                    let ch: u8 = (*channel).into();
+                    (ch == 0 && mute_lead) || (ch == 1 && mute_bass)
+                }
+                _ => false,
+            };
+
+            if should_mute {
+                // Accumulate the delta time for the next non-muted event
+                accumulated_delta += u32::from(event.delta);
+            } else {
+                // Add accumulated delta to this event's delta
+                let adjusted_delta = u32::from(event.delta) + accumulated_delta;
+                accumulated_delta = 0;
+                new_track.push(TrackEvent {
+                    delta: adjusted_delta.into(),
+                    kind: event.kind,
+                });
+            }
         }
 
         new_tracks.push(new_track);
@@ -814,7 +858,15 @@ enum DynamicShape {
 }
 
 impl SectionVariation {
-    fn random<R: Rng>(rng: &mut R) -> Self {
+    /// Create a random variation with fill controlling note density
+    /// fill: 0.0 = sparse (minimal double-time), 1.0 = dense (maximum double-time)
+    fn random<R: Rng>(rng: &mut R, fill: f32) -> Self {
+        let fill = fill.clamp(0.0, 1.0);
+        // Scale double-time chances based on fill
+        // At fill=0: double_time_chance ~0.02, loop_chance ~0.05
+        // At fill=1: double_time_chance ~0.40, loop_chance ~0.50
+        let base_double_time = 0.02 + fill * 0.38;
+        let base_loop_double = 0.05 + fill * 0.45;
         Self {
             loops: rng.gen_range(12..=20),
             drop_chance: rng.gen_range(0.02..0.10),
@@ -826,25 +878,27 @@ impl SectionVariation {
                 2 => DynamicShape::Crescendo,
                 _ => DynamicShape::Decrescendo,
             },
-            double_time_chance: rng.gen_range(0.08..0.20),
-            double_time_loop_chance: rng.gen_range(0.10..0.25),
+            double_time_chance: base_double_time + rng.gen_range(-0.05..0.05),
+            double_time_loop_chance: base_loop_double + rng.gen_range(-0.05..0.05),
         }
     }
 
-    fn for_single_mode(loops: u32) -> Self {
+    fn for_single_mode(loops: u32, fill: f32) -> Self {
+        let fill = fill.clamp(0.0, 1.0);
         Self {
             loops,
             drop_chance: 0.05,
             octave_shift_chance: 0.08,
             velocity_wobble: 0.1,
             dynamic_shape: DynamicShape::Wave,
-            double_time_chance: 0.12,
-            double_time_loop_chance: 0.15,
+            double_time_chance: 0.02 + fill * 0.38,
+            double_time_loop_chance: 0.05 + fill * 0.45,
         }
     }
 
     /// Variation for export - keeps most variations but ensures predictable note count
-    fn for_export<R: Rng>(rng: &mut R, loops: u32) -> Self {
+    fn for_export<R: Rng>(rng: &mut R, loops: u32, fill: f32) -> Self {
+        let fill = fill.clamp(0.0, 1.0);
         Self {
             loops,
             drop_chance: 0.0,           // No dropped notes (changes note count)
@@ -857,7 +911,7 @@ impl SectionVariation {
                 _ => DynamicShape::Decrescendo,
             },
             double_time_chance: 0.0,    // No note-level double-time (adds extra notes)
-            double_time_loop_chance: rng.gen_range(0.10..0.25), // Keep loop double-time (just speeds up)
+            double_time_loop_chance: 0.05 + fill * 0.45, // Scale with fill
         }
     }
 }
@@ -1022,14 +1076,17 @@ fn add_steps_to_sequence(
 }
 
 /// Add alternating chord progression (root triad <-> augmented) over the sequence
-fn add_chord_progression(
+/// with optional strum effect (notes played with slight time offsets)
+fn add_chord_progression<R: Rng>(
     seq: &mut Sequence,
+    rng: &mut R,
     root: &Note,
     scale_notes: &[u8],
     start_ticks: u32,
     end_ticks: u32,
     chord_duration_beats: f32,
     velocity: f32,
+    strum_ticks: u32,
 ) {
     let time_sig = seq.time_signature();
     let chord_duration = time_sig.beat_time(chord_duration_beats);
@@ -1045,20 +1102,44 @@ fn add_chord_progression(
     let mut use_root = true;
 
     while current_ticks < end_ticks {
-        let time = Time { ticks: current_ticks };
         let remaining = end_ticks - current_ticks;
         let actual_duration_ticks = chord_duration.ticks.min(remaining);
-        let actual_duration = Time { ticks: actual_duration_ticks };
 
         let chord_notes = if use_root { &root_triad } else { &aug_chord };
 
-        // Add chord on channel 1 (bass)
-        let chord_data: Vec<(Note, f32, Time)> = chord_notes
-            .iter()
-            .map(|n| (n.clone(), velocity, actual_duration * release))
-            .collect();
+        // Add each note with strum offset (humanized variance)
+        for (i, note) in chord_notes.iter().enumerate() {
+            // Calculate strum offset with humanized variance
+            let base_offset = (i as u32) * strum_ticks;
+            let humanized_offset = if strum_ticks > 0 {
+                // Add variance of ±30% around the base offset
+                let variance = (strum_ticks as f32 * 0.3) as i32;
+                let jitter = if variance > 0 {
+                    rng.gen_range(-variance..=variance)
+                } else {
+                    0
+                };
+                (base_offset as i32 + jitter).max(0) as u32
+            } else {
+                0
+            };
 
-        seq.add_chord_on_channel(time, chord_data, 1);
+            let note_time = Time { ticks: current_ticks + humanized_offset };
+            // Shorten duration slightly to account for strum offset
+            let note_duration = if humanized_offset < actual_duration_ticks {
+                Time { ticks: (actual_duration_ticks - humanized_offset) }
+            } else {
+                Time { ticks: 1 } // Minimum duration
+            };
+
+            seq.add_note_on_channel(
+                note_time,
+                note.clone(),
+                velocity,
+                note_duration * release,
+                1, // bass channel
+            );
+        }
 
         current_ticks += chord_duration.ticks;
         use_root = !use_root;
@@ -1156,8 +1237,8 @@ impl PlayState {
     }
 
     /// Build and return the sequence for this state
-    fn build_sequence(&self, octaves: u32) -> Result<Sequence, Box<dyn std::error::Error>> {
-        self.build_sequence_with_options(octaves, false)
+    fn build_sequence(&self, octaves: u32, strum_ticks: u32, fill: f32) -> Result<Sequence, Box<dyn std::error::Error>> {
+        self.build_sequence_with_options(octaves, strum_ticks, fill, false)
     }
 
     /// Build sequence with export options
@@ -1165,6 +1246,8 @@ impl PlayState {
     fn build_sequence_with_options(
         &self,
         octaves: u32,
+        strum_ticks: u32,
+        fill: f32,
         export: bool,
     ) -> Result<Sequence, Box<dyn std::error::Error>> {
         let scale_notes = get_scale_notes(&self.scale_name)?;
@@ -1187,9 +1270,9 @@ impl PlayState {
             let aligned_loops = loops_for_alignment(note_steps_per_loop, pattern_notes.len());
             // Use at least 1 loop, cap at reasonable maximum
             let loops = aligned_loops.clamp(1, 32) as u32;
-            SectionVariation::for_export(&mut rng, loops)
+            SectionVariation::for_export(&mut rng, loops, fill)
         } else {
-            SectionVariation::random(&mut rng)
+            SectionVariation::random(&mut rng, fill)
         };
         let forward_steps = apply_groove_with_variation(&mut rng, &pattern_notes, &self.groove, &variation);
 
@@ -1222,18 +1305,20 @@ impl PlayState {
         // Chords change every 2 beats for harmonic movement
         add_chord_progression(
             &mut seq,
+            &mut rng,
             &self.root,
             &scale_notes,
             0,
             end_ticks,
             2.0,  // chord changes every 2 beats
             0.5,  // softer than melody
+            strum_ticks,
         );
 
         Ok(seq)
     }
 
-    fn display_with_instrument(&self, instrument: Option<u8>) {
+    fn display_with_instruments(&self, lead: Option<u8>, bass: Option<u8>) {
         let scale = get_scale(&self.scale_name).unwrap();
 
         // Build the command line args
@@ -1241,14 +1326,21 @@ impl PlayState {
         if self.variation_index != 0 {
             args.push_str(&format!(" --variation {}", self.variation_index));
         }
-        if let Some(prog) = instrument {
-            args.push_str(&format!(" --instrument {}", prog));
+        if let Some(prog) = lead {
+            args.push_str(&format!(" --lead {}", prog));
+        }
+        if let Some(prog) = bass {
+            args.push_str(&format!(" --bass {}", prog));
         }
         println!("\n{}", args);
 
-        // Show instrument name if set
-        if let Some(prog) = instrument {
-            println!("Instrument: {} ({})", prog, gm_instrument_name(prog));
+        // Show instrument names if set
+        if lead.is_some() || bass.is_some() {
+            let lead_name = lead.map(|p| format!("{} ({})", p, gm_instrument_name(p)))
+                .unwrap_or_else(|| "default".to_string());
+            let bass_name = bass.map(|p| format!("{} ({})", p, gm_instrument_name(p)))
+                .unwrap_or_else(|| "33 (Electric Bass (finger))".to_string());
+            println!("Lead: {} | Bass: {}", lead_name, bass_name);
         }
 
         println!(
@@ -1261,17 +1353,41 @@ impl PlayState {
     }
 }
 
-/// Spawn a background thread that reads stdin and sends commands through a channel
+/// Spawn a background thread that reads stdin with readline support and sends commands through a channel
 fn spawn_input_thread() -> Receiver<String> {
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
-        let stdin = io::stdin();
+        let mut rl = match DefaultEditor::new() {
+            Ok(editor) => editor,
+            Err(e) => {
+                eprintln!("Failed to initialize readline: {}", e);
+                return;
+            }
+        };
         loop {
-            let mut input = String::new();
-            if stdin.lock().read_line(&mut input).is_ok() {
-                let cmd = input.trim().to_lowercase();
-                if tx.send(cmd).is_err() {
-                    break; // Receiver dropped, exit thread
+            match rl.readline("> ") {
+                Ok(line) => {
+                    let cmd = line.trim().to_lowercase();
+                    // Add non-empty commands to history
+                    if !cmd.is_empty() {
+                        let _ = rl.add_history_entry(&line);
+                    }
+                    if tx.send(cmd).is_err() {
+                        break; // Receiver dropped, exit thread
+                    }
+                }
+                Err(ReadlineError::Interrupted) => {
+                    // Ctrl+C - treat as quit
+                    let _ = tx.send("q".to_string());
+                    break;
+                }
+                Err(ReadlineError::Eof) => {
+                    // Ctrl+D - treat as quit
+                    let _ = tx.send("q".to_string());
+                    break;
+                }
+                Err(_) => {
+                    break;
                 }
             }
         }
@@ -1301,14 +1417,17 @@ fn run_demo_mode(
     soundfont: SoundFontSource,
     octaves: u32,
     bpm: u32,
+    strum_ticks: u32,
+    fill: f32,
     initial_seed: Option<u64>,
     initial_variation: u32,
-    initial_instrument: Option<u8>,
+    initial_lead: Option<u8>,
+    initial_bass: Option<u8>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Using SoundFont: {}", soundfont.path().display());
     println!("\n=== IMPROV DEMO MODE ===");
     println!("Loops continuously. Commands are processed immediately.");
-    println!("Commands: (Enter)=next | n=new scale | i=instrument | b=back | s=stop | q=quit | <seed>=jump");
+    println!("Commands: (Enter)=next | n=new scale | il[N]=lead | ib[N]=bass | ml/mb=mute | b=back | s=stop | q=quit");
     println!("BPM: {}\n", bpm);
 
     let player = Arc::new(Player::new(soundfont)?);
@@ -1324,8 +1443,13 @@ fn run_demo_mode(
     let mut current_seed = initial_seed.unwrap_or_else(|| rand::thread_rng().gen());
     let mut variation_index = initial_variation;
 
-    // Current GM instrument
-    let mut current_instrument: Option<u8> = initial_instrument;
+    // Current GM instruments
+    let mut current_lead: Option<u8> = initial_lead;
+    let mut current_bass: Option<u8> = initial_bass;
+
+    // Mute states
+    let mut mute_lead = false;
+    let mut mute_bass = false;
 
     // Current audio thread handle and stop flag
     let mut audio_handle: Option<thread::JoinHandle<()>> = None;
@@ -1355,15 +1479,15 @@ fn run_demo_mode(
                 current_seed = current_seed.wrapping_add(1);
             };
 
-            state.display_with_instrument(current_instrument);
-            println!("  (looping - Enter=next, n=new scale, i=instrument, b=back, s=stop, q=quit)");
+            state.display_with_instruments(current_lead, current_bass);
+            println!("  (looping - Enter=next, n=new, il/ib=instr, ml/mb=mute, b=back, s=stop, q=quit)");
 
-            // Build the sequence and convert to MIDI bytes with tempo and instrument
-            let seq = state.build_sequence(octaves)?;
+            // Build the sequence and convert to MIDI bytes with tempo and instruments
+            let seq = state.build_sequence(octaves, strum_ticks, fill)?;
             let smf = seq.to_midi();
             let mut midi_buffer = Vec::new();
             smf.write_std(&mut midi_buffer)?;
-            let midi_bytes = prepare_midi_bytes(&midi_buffer, bpm, current_instrument);
+            let midi_bytes = prepare_midi_bytes(&midi_buffer, bpm, current_lead, current_bass, mute_lead, mute_bass);
 
             // Start new audio loop
             stop_flag = Arc::new(AtomicBool::new(false));
@@ -1413,11 +1537,16 @@ fn run_demo_mode(
                     println!("  (no history to go back to)");
                 }
             }
-            "i" | "instrument" => {
-                // Random GM instrument
-                let prog: u8 = rand::thread_rng().gen_range(0..128);
-                current_instrument = Some(prog);
-                println!("\n  -> Instrument: {} ({})", prog, gm_instrument_name(prog));
+            "ml" => {
+                // Toggle lead mute
+                mute_lead = !mute_lead;
+                println!("\n  -> Lead: {}", if mute_lead { "MUTED" } else { "unmuted" });
+                need_new_audio = true;
+            }
+            "mb" => {
+                // Toggle bass mute
+                mute_bass = !mute_bass;
+                println!("\n  -> Bass: {}", if mute_bass { "MUTED" } else { "unmuted" });
                 need_new_audio = true;
             }
             "s" | "stop" => {
@@ -1435,14 +1564,52 @@ fn run_demo_mode(
                 return Ok(());
             }
             _ => {
+                // Check for il (lead instrument) command
+                if cmd == "il" || cmd.starts_with("il ") || cmd.starts_with("il") && cmd[2..].chars().next().map_or(false, |c| c.is_ascii_digit()) {
+                    let num_str = cmd.strip_prefix("il").unwrap().trim();
+                    let prog: u8 = if num_str.is_empty() {
+                        rand::thread_rng().gen_range(0..128)
+                    } else if let Ok(n) = num_str.parse::<u8>() {
+                        if n > 127 {
+                            println!("  Instrument must be 0-127");
+                            continue;
+                        }
+                        n
+                    } else {
+                        println!("  Invalid instrument number");
+                        continue;
+                    };
+                    current_lead = Some(prog);
+                    println!("\n  -> Lead: {} ({})", prog, gm_instrument_name(prog));
+                    need_new_audio = true;
+                }
+                // Check for ib (bass instrument) command
+                else if cmd == "ib" || cmd.starts_with("ib ") || cmd.starts_with("ib") && cmd[2..].chars().next().map_or(false, |c| c.is_ascii_digit()) {
+                    let num_str = cmd.strip_prefix("ib").unwrap().trim();
+                    let prog: u8 = if num_str.is_empty() {
+                        rand::thread_rng().gen_range(0..128)
+                    } else if let Ok(n) = num_str.parse::<u8>() {
+                        if n > 127 {
+                            println!("  Instrument must be 0-127");
+                            continue;
+                        }
+                        n
+                    } else {
+                        println!("  Invalid instrument number");
+                        continue;
+                    };
+                    current_bass = Some(prog);
+                    println!("\n  -> Bass: {} ({})", prog, gm_instrument_name(prog));
+                    need_new_audio = true;
+                }
                 // Try to parse as a seed number
-                if let Ok(new_seed) = cmd.parse::<u64>() {
+                else if let Ok(new_seed) = cmd.parse::<u64>() {
                     println!("\n  -> Jumping to seed {}...", new_seed);
                     current_seed = new_seed;
                     variation_index = 0;
                     need_new_audio = true;
                 } else {
-                    println!("  Unknown command '{}'. Use Enter, n, b, s, q, or a seed number", cmd);
+                    println!("  Unknown command '{}'. Use Enter, n, il, ib, b, s, q, or a seed number", cmd);
                 }
             }
         }
@@ -1458,6 +1625,7 @@ fn run_single_mode(
     loops: u32,
     octaves: u32,
     bpm: u32,
+    fill: f32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Using SoundFont: {}", soundfont.path().display());
     println!("Root note: {} (MIDI {})", note_name(&root), root.midi_value());
@@ -1476,7 +1644,7 @@ fn run_single_mode(
     let mut rng = rand::thread_rng();
     let base_notes = build_base_notes(&root, &scale_notes, octaves);
     let pattern_notes = apply_pattern(&mut rng, &base_notes, pattern);
-    let variation = SectionVariation::for_single_mode(loops);
+    let variation = SectionVariation::for_single_mode(loops, fill);
     let steps = apply_groove_with_variation(&mut rng, &pattern_notes, groove, &variation);
     add_steps_to_sequence(&mut seq, &steps, 0);
 
@@ -1511,13 +1679,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let state = PlayState::from_seed(seed, cli.variation, &grooves)
             .ok_or_else(|| format!("Could not generate state for seed {}", seed))?;
 
-        state.display_with_instrument(cli.instrument);
+        state.display_with_instruments(cli.lead, cli.bass);
         // Use clean export variation for perfect looping
-        let seq = state.build_sequence_with_options(cli.octaves, true)?;
+        let seq = state.build_sequence_with_options(cli.octaves, cli.strum, cli.fill, true)?;
         let smf = seq.to_midi();
         let mut midi_buffer = Vec::new();
         smf.write_std(&mut midi_buffer)?;
-        let midi_bytes = prepare_midi_bytes(&midi_buffer, cli.bpm, cli.instrument);
+        let midi_bytes = prepare_midi_bytes(&midi_buffer, cli.bpm, cli.lead, cli.bass, false, false);
 
         let mut file = File::create(output_path)?;
         file.write_all(&midi_bytes)?;
@@ -1531,8 +1699,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let demo_mode =
         cli.scale.is_none() && cli.root.is_none() && cli.pattern.is_none() && cli.groove.is_none();
 
-    if demo_mode || cli.seed.is_some() || cli.variation > 0 || cli.instrument.is_some() {
-        run_demo_mode(soundfont, cli.octaves, cli.bpm, cli.seed, cli.variation, cli.instrument)?;
+    if demo_mode || cli.seed.is_some() || cli.variation > 0 || cli.lead.is_some() || cli.bass.is_some() {
+        run_demo_mode(soundfont, cli.octaves, cli.bpm, cli.strum, cli.fill, cli.seed, cli.variation, cli.lead, cli.bass)?;
     } else {
         let scale_name = cli.scale.unwrap_or_else(|| "major".to_string());
         let root = if let Some(ref r) = cli.root {
@@ -1560,6 +1728,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cli.loops,
             cli.octaves,
             cli.bpm,
+            cli.fill,
         )?;
     }
 
