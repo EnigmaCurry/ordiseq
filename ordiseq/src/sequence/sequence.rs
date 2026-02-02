@@ -16,6 +16,7 @@ struct SequenceNote {
     pub note: Note,
     pub velocity: f32, // 0->1
     pub duration: Time,
+    pub channel: u8,   // MIDI channel (0-15)
 }
 
 /// Represents a chord of notes in the sequence.
@@ -25,6 +26,7 @@ struct SequenceNote {
 #[derive(Debug, Clone, PartialEq)]
 struct SequenceChord {
     pub sequence_notes: Vec<SequenceNote>,
+    pub channel: u8, // MIDI channel (0-15)
 }
 
 /// Represents an element of the sequence: a note, a chord
@@ -52,9 +54,23 @@ impl Sequence {
         })
     }
 
-    /// Adds a note to the sequence at a specific time.
+    /// Adds a note to the sequence at a specific time on channel 0.
     pub fn add_note<N>(&mut self, time: Time, note: N, velocity: f32, duration: Time)
     where
+        N: IntoNoteOrRest,
+    {
+        self.add_note_on_channel(time, note, velocity, duration, 0);
+    }
+
+    /// Adds a note to the sequence at a specific time on a specific channel.
+    pub fn add_note_on_channel<N>(
+        &mut self,
+        time: Time,
+        note: N,
+        velocity: f32,
+        duration: Time,
+        channel: u8,
+    ) where
         N: IntoNoteOrRest,
     {
         match note.into_note_or_rest() {
@@ -65,6 +81,7 @@ impl Sequence {
                         note,
                         velocity,
                         duration,
+                        channel,
                     }),
                 );
             }
@@ -74,11 +91,21 @@ impl Sequence {
         }
     }
 
-    /// Adds a chord to the sequence at a specific time.
+    /// Adds a chord to the sequence at a specific time on channel 0.
     pub fn add_chord(
         &mut self,
         time: Time,
         notes: Vec<(Note, f32, Time)>, // Vec of (Note, velocity, duration)
+    ) {
+        self.add_chord_on_channel(time, notes, 0);
+    }
+
+    /// Adds a chord to the sequence at a specific time on a specific channel.
+    pub fn add_chord_on_channel(
+        &mut self,
+        time: Time,
+        notes: Vec<(Note, f32, Time)>, // Vec of (Note, velocity, duration)
+        channel: u8,
     ) {
         let sequence_notes = notes
             .into_iter()
@@ -86,9 +113,13 @@ impl Sequence {
                 note,
                 velocity,
                 duration,
+                channel,
             })
             .collect();
-        let chord = SequenceChord { sequence_notes };
+        let chord = SequenceChord {
+            sequence_notes,
+            channel,
+        };
         self.elements.insert(time, SequenceElement::Chord(chord));
     }
 
@@ -154,7 +185,7 @@ impl Sequence {
                     events.push((
                         time.ticks,
                         TrackEventKind::Midi {
-                            channel: 0.into(),
+                            channel: sequence_note.channel.into(),
                             message: MidiMessage::NoteOn {
                                 key: sequence_note.note.midi_value().into(),
                                 vel: ((sequence_note.velocity * 127.0).round() as u8).into(),
@@ -167,7 +198,7 @@ impl Sequence {
                     events.push((
                         end_time_ticks,
                         TrackEventKind::Midi {
-                            channel: 0.into(),
+                            channel: sequence_note.channel.into(),
                             message: MidiMessage::NoteOff {
                                 key: sequence_note.note.midi_value().into(),
                                 vel: 0.into(),
@@ -181,7 +212,7 @@ impl Sequence {
                         events.push((
                             time.ticks,
                             TrackEventKind::Midi {
-                                channel: 0.into(),
+                                channel: chord.channel.into(),
                                 message: MidiMessage::NoteOn {
                                     key: sequence_note.note.midi_value().into(),
                                     vel: ((sequence_note.velocity * 127.0).round() as u8).into(),
@@ -196,7 +227,7 @@ impl Sequence {
                         events.push((
                             end_time_ticks,
                             TrackEventKind::Midi {
-                                channel: 0.into(),
+                                channel: chord.channel.into(),
                                 message: MidiMessage::NoteOff {
                                     key: sequence_note.note.midi_value().into(),
                                     vel: 0.into(),

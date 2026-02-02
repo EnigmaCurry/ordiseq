@@ -539,7 +539,7 @@ fn prepare_midi_bytes(midi_bytes: &[u8], bpm: u32, program: Option<u8>) -> Vec<u
                     delta: 0.into(),
                     kind: TrackEventKind::Meta(MetaMessage::Tempo(tempo_us.into())),
                 });
-                // Add program change if specified
+                // Add program change for channel 0 (melody) if specified
                 if let Some(prog) = program {
                     new_track.push(TrackEvent {
                         delta: 0.into(),
@@ -549,6 +549,15 @@ fn prepare_midi_bytes(midi_bytes: &[u8], bpm: u32, program: Option<u8>) -> Vec<u
                         },
                     });
                 }
+                // Add bass program change for channel 1 (chords)
+                // 33 = Electric Bass (finger)
+                new_track.push(TrackEvent {
+                    delta: 0.into(),
+                    kind: TrackEventKind::Midi {
+                        channel: 1.into(),
+                        message: MidiMessage::ProgramChange { program: 33.into() },
+                    },
+                });
                 header_added = true;
             }
 
@@ -1043,13 +1052,13 @@ fn add_chord_progression(
 
         let chord_notes = if use_root { &root_triad } else { &aug_chord };
 
-        // Add chord as multiple notes with same start time
+        // Add chord on channel 1 (bass)
         let chord_data: Vec<(Note, f32, Time)> = chord_notes
             .iter()
             .map(|n| (n.clone(), velocity, actual_duration * release))
             .collect();
 
-        seq.add_chord(time, chord_data);
+        seq.add_chord_on_channel(time, chord_data, 1);
 
         current_ticks += chord_duration.ticks;
         use_root = !use_root;
