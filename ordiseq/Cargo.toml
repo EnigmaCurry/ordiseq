@@ -56,3 +56,7 @@ required-features = ["synth"]
 [[example]]
 name = "scale_arp"
 required-features = ["synth"]
+
+[[example]]
+name = "groove_improv"
+required-features = ["synth"]

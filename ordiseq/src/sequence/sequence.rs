@@ -5,7 +5,7 @@
 
 use crate::klib_trait::{IntoNoteOrRest, NoteOrRest, Transposable};
 use crate::time::{Time, TimeSignature};
-use crate::{error::OrdiseqError, midi::HasMidiValue, time::calculate_tpqn};
+use crate::{error::OrdiseqError, midi::HasMidiValue};
 use klib::core::note::Note;
 use midly::{Format, MetaMessage, MidiMessage, Smf, Timing, TrackEvent, TrackEventKind};
 use std::collections::BTreeMap;
@@ -243,7 +243,7 @@ impl Sequence {
     }
 
     fn ppq(&self) -> u16 {
-        calculate_tpqn(self.time_signature).unwrap_or(96)
+        self.time_signature.ticks_per_quarter_note as u16
     }
 
     pub fn title(&self) -> String {
