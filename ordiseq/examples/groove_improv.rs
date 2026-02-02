@@ -387,6 +387,18 @@ struct Cli {
     #[arg(long)]
     mb: bool,
 
+    /// Kick drum pattern as hex (e.g., 8080 = hits on beats 1 and 9 of 16)
+    #[arg(long)]
+    kick: Option<String>,
+
+    /// Snare drum pattern as hex (e.g., 0808 = hits on beats 5 and 13 of 16)
+    #[arg(long)]
+    snare: Option<String>,
+
+    /// Hi-hat pattern as hex (e.g., AAAA = eighth notes)
+    #[arg(long)]
+    hat: Option<String>,
+
     /// Export MIDI to file instead of playing (requires --seed)
     #[arg(long)]
     output: Option<String>,
@@ -1230,6 +1242,98 @@ fn add_steps_to_sequence(
     current_ticks
 }
 
+// MIDI drum note numbers (General MIDI)
+const DRUM_KICK: u8 = 36;   // C1 - Bass Drum 1
+const DRUM_SNARE: u8 = 38;  // D1 - Acoustic Snare
+const DRUM_HAT: u8 = 42;    // F#1 - Closed Hi-Hat
+const DRUM_CHANNEL: u8 = 9; // MIDI channel 10 (0-indexed)
+
+/// Parse a hex string into a vector of beat triggers (true = hit, false = rest)
+/// Each hex digit represents 4 subdivisions (bits)
+fn parse_drum_pattern(hex: &str) -> Result<Vec<bool>, String> {
+    let mut beats = Vec::new();
+    for c in hex.chars() {
+        let nibble = c.to_digit(16).ok_or_else(|| format!("Invalid hex character: {}", c))? as u8;
+        // MSB first: bit 3, 2, 1, 0
+        beats.push((nibble & 0b1000) != 0);
+        beats.push((nibble & 0b0100) != 0);
+        beats.push((nibble & 0b0010) != 0);
+        beats.push((nibble & 0b0001) != 0);
+    }
+    Ok(beats)
+}
+
+/// Generate a random drum pattern as a hex string
+fn random_drum_pattern<R: Rng>(rng: &mut R, density: f32) -> String {
+    let mut hex = String::new();
+    for _ in 0..4 {
+        let mut nibble: u8 = 0;
+        for bit in 0..4 {
+            if rng.gen::<f32>() < density {
+                nibble |= 1 << (3 - bit);
+            }
+        }
+        hex.push_str(&format!("{:X}", nibble));
+    }
+    hex
+}
+
+/// Add drum pattern to sequence
+fn add_drum_pattern(
+    seq: &mut Sequence,
+    pattern: &str,
+    drum_note: u8,
+    start_ticks: u32,
+    end_ticks: u32,
+    velocity: f32,
+) -> Result<(), String> {
+    let beats = parse_drum_pattern(pattern)?;
+    if beats.is_empty() {
+        return Ok(());
+    }
+
+    let total_ticks = end_ticks - start_ticks;
+    let ticks_per_step = total_ticks / beats.len() as u32;
+
+    let drum_midi = drum_note;
+    let duration_ticks = (ticks_per_step as f32 * 0.5) as u32; // Short drum hits
+
+    let mut current_ticks = start_ticks;
+    let mut beat_idx = 0;
+
+    while current_ticks < end_ticks {
+        if beats[beat_idx % beats.len()] {
+            let note = midi_to_note(drum_midi).map_err(|e| format!("{:?}", e))?;
+            seq.add_note_on_channel(
+                Time { ticks: current_ticks },
+                note,
+                velocity,
+                Time { ticks: duration_ticks.max(1) },
+                DRUM_CHANNEL,
+            );
+        }
+        current_ticks += ticks_per_step;
+        beat_idx += 1;
+    }
+
+    Ok(())
+}
+
+/// Add all drum patterns to sequence
+fn add_drums_to_sequence(
+    seq: &mut Sequence,
+    kick: &str,
+    snare: &str,
+    hat: &str,
+    start_ticks: u32,
+    end_ticks: u32,
+) -> Result<(), String> {
+    add_drum_pattern(seq, kick, DRUM_KICK, start_ticks, end_ticks, 0.9)?;
+    add_drum_pattern(seq, snare, DRUM_SNARE, start_ticks, end_ticks, 0.85)?;
+    add_drum_pattern(seq, hat, DRUM_HAT, start_ticks, end_ticks, 0.7)?;
+    Ok(())
+}
+
 /// Add alternating chord progression (root triad <-> augmented) over the sequence
 /// with optional strum effect (notes played with slight time offsets)
 fn add_chord_progression<R: Rng>(
@@ -1392,8 +1496,8 @@ impl PlayState {
     }
 
     /// Build and return the sequence for this state
-    fn build_sequence(&self, octaves: u32, strum_ticks: u32, fill: f32) -> Result<Sequence, Box<dyn std::error::Error>> {
-        self.build_sequence_with_options(octaves, strum_ticks, fill, false)
+    fn build_sequence(&self, octaves: u32, strum_ticks: u32, fill: f32, kick: &str, snare: &str, hat: &str) -> Result<Sequence, Box<dyn std::error::Error>> {
+        self.build_sequence_with_options(octaves, strum_ticks, fill, kick, snare, hat, false)
     }
 
     /// Build sequence with export options
@@ -1403,6 +1507,9 @@ impl PlayState {
         octaves: u32,
         strum_ticks: u32,
         fill: f32,
+        kick: &str,
+        snare: &str,
+        hat: &str,
         export: bool,
     ) -> Result<Sequence, Box<dyn std::error::Error>> {
         let scale_notes = get_scale_notes(&self.scale_name)?;
@@ -1470,6 +1577,12 @@ impl PlayState {
             strum_ticks,
         );
 
+        // Add drum patterns
+        if !kick.is_empty() || !snare.is_empty() || !hat.is_empty() {
+            add_drums_to_sequence(&mut seq, kick, snare, hat, 0, end_ticks)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+        }
+
         Ok(seq)
     }
 
@@ -1483,6 +1596,9 @@ impl PlayState {
         fill: f32,
         strum: u32,
         octaves: u32,
+        kick: &str,
+        snare: &str,
+        hat: &str,
     ) {
         let scale = get_scale(&self.scale_name).unwrap();
         let pattern_lower = format!("{:?}", self.pattern).to_lowercase();
@@ -1507,6 +1623,16 @@ impl PlayState {
         if mute_bass {
             args.push_str(" --mb");
         }
+        // Add drum patterns
+        if !kick.is_empty() {
+            args.push_str(&format!(" --kick {}", kick));
+        }
+        if !snare.is_empty() {
+            args.push_str(&format!(" --snare {}", snare));
+        }
+        if !hat.is_empty() {
+            args.push_str(&format!(" --hat {}", hat));
+        }
         println!("\n{}", args);
 
         // Show instrument names and mute status
@@ -1517,6 +1643,9 @@ impl PlayState {
         let lead_status = if mute_lead { " [MUTED]" } else { "" };
         let bass_status = if mute_bass { " [MUTED]" } else { "" };
         println!("Lead: {}{} | Bass: {}{}", lead_name, lead_status, bass_name, bass_status);
+
+        // Show drums info
+        println!("Drums: kick={} snare={} hat={}", kick, snare, hat);
 
         println!(
             "Scale: {} | Root: {} | Pattern: {} ({}) | Groove: {}",
@@ -1601,11 +1730,14 @@ fn run_demo_mode(
     initial_bass: Option<u8>,
     initial_mute_lead: bool,
     initial_mute_bass: bool,
+    initial_kick: Option<String>,
+    initial_snare: Option<String>,
+    initial_hat: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Using SoundFont: {}", soundfont.path().display());
     println!("\n=== IMPROV DEMO MODE ===");
     println!("Loops continuously. Commands are processed immediately.");
-    println!("Commands: (Enter)=new | j/k=next/prev | g/p=groove/pattern | il/ib=instr | ml/mb=mute | b=bpm | f=fill | #=seed | q=quit");
+    println!("Commands: (Enter)=new | j/k=next/prev | g/p=groove/pattern | il/ib=instr | ml/mb=mute | b=bpm | f=fill | dk/ds/dh=drums | #=seed | q=quit");
     println!("BPM: {}\n", bpm);
 
     // Make bpm mutable for runtime changes
@@ -1632,6 +1764,11 @@ fn run_demo_mode(
     // Mute states
     let mut mute_lead = initial_mute_lead;
     let mut mute_bass = initial_mute_bass;
+
+    // Drum patterns (default to silent)
+    let mut current_kick = initial_kick.unwrap_or_else(|| "0000".to_string());
+    let mut current_snare = initial_snare.unwrap_or_else(|| "0000".to_string());
+    let mut current_hat = initial_hat.unwrap_or_else(|| "0000".to_string());
 
     // Override groove/pattern (None = use seed-derived values)
     let mut groove_override: Option<usize> = None;
@@ -1673,11 +1810,11 @@ fn run_demo_mode(
                 state.pattern = ALL_PATTERNS[idx % ALL_PATTERNS.len()];
             }
 
-            state.display_full(current_lead, current_bass, mute_lead, mute_bass, bpm, fill, strum_ticks, octaves);
-            println!("  (looping - Enter=new, j/k, g/p, il/ib, ml/mb, b=bpm, f=fill, #=seed, q=quit)");
+            state.display_full(current_lead, current_bass, mute_lead, mute_bass, bpm, fill, strum_ticks, octaves, &current_kick, &current_snare, &current_hat);
+            println!("  (looping - Enter=new, j/k, g/p, il/ib, ml/mb, b=bpm, f=fill, dk/ds/dh=drums, #=seed, q=quit)");
 
             // Build the sequence and convert to MIDI bytes with tempo and instruments
-            let seq = state.build_sequence(octaves, strum_ticks, fill)?;
+            let seq = state.build_sequence(octaves, strum_ticks, fill, &current_kick, &current_snare, &current_hat)?;
             let smf = seq.to_midi();
             let mut midi_buffer = Vec::new();
             smf.write_std(&mut midi_buffer)?;
@@ -1872,6 +2009,51 @@ fn run_demo_mode(
                     println!("\n  -> Bass: {} ({})", prog, gm_instrument_name(prog));
                     need_new_audio = true;
                 }
+                // Check for dk (kick drum pattern) command
+                else if cmd.starts_with("dk") {
+                    let pattern_str = cmd.strip_prefix("dk").unwrap().trim().to_uppercase();
+                    if pattern_str.is_empty() {
+                        // Randomize kick pattern
+                        current_kick = random_drum_pattern(&mut rand::thread_rng(), 0.25);
+                    } else if parse_drum_pattern(&pattern_str).is_ok() {
+                        current_kick = pattern_str;
+                    } else {
+                        println!("  Invalid hex pattern (use 0-9, A-F)");
+                        continue;
+                    }
+                    println!("\n  -> Kick: {}", current_kick);
+                    need_new_audio = true;
+                }
+                // Check for ds (snare drum pattern) command
+                else if cmd.starts_with("ds") {
+                    let pattern_str = cmd.strip_prefix("ds").unwrap().trim().to_uppercase();
+                    if pattern_str.is_empty() {
+                        // Randomize snare pattern
+                        current_snare = random_drum_pattern(&mut rand::thread_rng(), 0.25);
+                    } else if parse_drum_pattern(&pattern_str).is_ok() {
+                        current_snare = pattern_str;
+                    } else {
+                        println!("  Invalid hex pattern (use 0-9, A-F)");
+                        continue;
+                    }
+                    println!("\n  -> Snare: {}", current_snare);
+                    need_new_audio = true;
+                }
+                // Check for dh (hi-hat drum pattern) command
+                else if cmd.starts_with("dh") {
+                    let pattern_str = cmd.strip_prefix("dh").unwrap().trim().to_uppercase();
+                    if pattern_str.is_empty() {
+                        // Randomize hat pattern
+                        current_hat = random_drum_pattern(&mut rand::thread_rng(), 0.5);
+                    } else if parse_drum_pattern(&pattern_str).is_ok() {
+                        current_hat = pattern_str;
+                    } else {
+                        println!("  Invalid hex pattern (use 0-9, A-F)");
+                        continue;
+                    }
+                    println!("\n  -> Hi-hat: {}", current_hat);
+                    need_new_audio = true;
+                }
                 // Try to parse as a seed number
                 else if let Ok(new_seed) = cmd.parse::<u64>() {
                     println!("\n  -> Jumping to seed {}...", new_seed);
@@ -1879,7 +2061,7 @@ fn run_demo_mode(
                     variation_index = 0;
                     need_new_audio = true;
                 } else {
-                    println!("  Unknown command '{}'. Use Enter, j, k, il, ib, b, ml, mb, s, q, or a seed", cmd);
+                    println!("  Unknown command '{}'. Use Enter, j, k, il, ib, dk, ds, dh, b, ml, mb, f, s, q, or a seed", cmd);
                 }
             }
         }
@@ -1949,9 +2131,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let state = PlayState::from_seed(seed, cli.variation, &grooves)
             .ok_or_else(|| format!("Could not generate state for seed {}", seed))?;
 
-        state.display_full(cli.lead, cli.bass, false, false, cli.bpm, cli.fill, cli.strum, cli.octaves);
+        let kick = cli.kick.clone().unwrap_or_else(|| "0000".to_string());
+        let snare = cli.snare.clone().unwrap_or_else(|| "0000".to_string());
+        let hat = cli.hat.clone().unwrap_or_else(|| "0000".to_string());
+        state.display_full(cli.lead, cli.bass, false, false, cli.bpm, cli.fill, cli.strum, cli.octaves, &kick, &snare, &hat);
         // Use clean export variation for perfect looping
-        let seq = state.build_sequence_with_options(cli.octaves, cli.strum, cli.fill, true)?;
+        let seq = state.build_sequence_with_options(cli.octaves, cli.strum, cli.fill, &kick, &snare, &hat, true)?;
         let smf = seq.to_midi();
         let mut midi_buffer = Vec::new();
         smf.write_std(&mut midi_buffer)?;
@@ -1970,7 +2155,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         cli.scale.is_none() && cli.root.is_none() && cli.pattern.is_none() && cli.groove.is_none();
 
     if demo_mode || cli.seed.is_some() || cli.variation > 0 || cli.lead.is_some() || cli.bass.is_some() {
-        run_demo_mode(soundfont, cli.octaves, cli.bpm, cli.strum, cli.fill, cli.seed, cli.variation, cli.lead, cli.bass, cli.ml, cli.mb)?;
+        run_demo_mode(soundfont, cli.octaves, cli.bpm, cli.strum, cli.fill, cli.seed, cli.variation, cli.lead, cli.bass, cli.ml, cli.mb, cli.kick, cli.snare, cli.hat)?;
     } else {
         let scale_name = cli.scale.unwrap_or_else(|| "major".to_string());
         let root = if let Some(ref r) = cli.root {
