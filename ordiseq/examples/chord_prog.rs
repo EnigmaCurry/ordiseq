@@ -1223,23 +1223,70 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let actual_duration = Time { ticks: step_duration.ticks.min(remaining) };
 
                         if !step.is_rest {
-                            // Decide whether to add a fill note
-                            let use_fill = fill > 0.0 && arp_rng.gen::<f32>() < fill * 0.3;
+                            let main_note = arp_notes[note_idx % loop_len];
 
+                            // With high fill, add grace note before main note
+                            if fill > 0.3 && arp_rng.gen::<f32>() < fill * 0.6 {
+                                if let Some(&grace) = scale_notes_full.choose(&mut arp_rng) {
+                                    let grace_dur = Time { ticks: actual_duration.ticks / 6 };
+                                    let grace_time = Time {
+                                        ticks: groove_time.ticks.saturating_sub(grace_dur.ticks),
+                                    };
+                                    let vel = humanize_vel(velocity * 0.5, humanize_velocity, &mut arp_rng);
+                                    seq.add_note(grace_time, grace, vel, grace_dur * 0.8);
+                                }
+                            }
+
+                            // Decide whether to replace with fill note
+                            let use_fill = fill > 0.0 && arp_rng.gen::<f32>() < fill * 0.5;
                             let note = if use_fill && !scale_notes_full.is_empty() {
-                                // Pick a random scale note as fill
                                 *scale_notes_full.choose(&mut arp_rng).unwrap()
                             } else {
-                                // Use the arp note, with loop_len to avoid double at wrap
-                                arp_notes[note_idx % loop_len]
+                                main_note
                             };
 
+                            // Main note
+                            let main_dur = if fill > 0.5 && arp_rng.gen::<f32>() < fill * 0.7 {
+                                // Shorter note to make room for embellishments
+                                actual_duration * 0.5
+                            } else {
+                                actual_duration * 0.9
+                            };
                             let vel = humanize_vel(
                                 velocity * step.velocity,
                                 humanize_velocity,
                                 &mut arp_rng,
                             );
-                            seq.add_note(groove_time, note, vel, actual_duration * 0.9);
+                            seq.add_note(groove_time, note, vel, main_dur);
+
+                            // With high fill, add passing tone after main note
+                            if fill > 0.4 && arp_rng.gen::<f32>() < fill * 0.8 {
+                                if let Some(&passing) = scale_notes_full.choose(&mut arp_rng) {
+                                    let pass_offset = actual_duration.ticks / 2;
+                                    let pass_dur = Time { ticks: actual_duration.ticks / 3 };
+                                    let pass_time = Time {
+                                        ticks: groove_time.ticks + pass_offset,
+                                    };
+                                    let vel = humanize_vel(velocity * 0.55, humanize_velocity, &mut arp_rng);
+                                    seq.add_note(pass_time, passing, vel, pass_dur * 0.8);
+                                }
+                            }
+
+                            // Extra improvisational flurry at high fill
+                            if fill > 0.7 && arp_rng.gen::<f32>() < fill * 0.5 {
+                                let num_extra = arp_rng.gen_range(1..=3);
+                                for j in 0..num_extra {
+                                    if let Some(&extra) = scale_notes_full.choose(&mut arp_rng) {
+                                        let offset = actual_duration.ticks * (j + 1) / 4;
+                                        let extra_dur = Time { ticks: actual_duration.ticks / 5 };
+                                        let extra_time = Time {
+                                            ticks: groove_time.ticks + offset,
+                                        };
+                                        let vel = humanize_vel(velocity * 0.45, humanize_velocity, &mut arp_rng);
+                                        seq.add_note(extra_time, extra, vel, extra_dur * 0.7);
+                                    }
+                                }
+                            }
 
                             if !use_fill {
                                 note_idx += 1;
