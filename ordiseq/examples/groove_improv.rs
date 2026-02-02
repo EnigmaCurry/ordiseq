@@ -341,6 +341,10 @@ struct Cli {
     #[arg(long)]
     seed: Option<u64>,
 
+    /// Variation index (used with --seed to reproduce exact state)
+    #[arg(long, default_value = "0")]
+    variation: u32,
+
     /// List available grooves and exit
     #[arg(long)]
     list_grooves: bool,
@@ -980,7 +984,11 @@ impl PlayState {
 
     fn display(&self) {
         let scale = get_scale(&self.scale_name).unwrap();
-        println!("\n--seed {} (variation {})", self.seed, self.variation_index);
+        if self.variation_index == 0 {
+            println!("\n--seed {}", self.seed);
+        } else {
+            println!("\n--seed {} --variation {}", self.seed, self.variation_index);
+        }
         println!(
             "Scale: {} | Root: {} | Pattern: {:?} | Groove: {}",
             scale.name,
@@ -1032,6 +1040,7 @@ fn run_demo_mode(
     octaves: u32,
     bpm: u32,
     initial_seed: Option<u64>,
+    initial_variation: u32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Using SoundFont: {}", soundfont.path().display());
     println!("\n=== IMPROV DEMO MODE ===");
@@ -1050,7 +1059,7 @@ fn run_demo_mode(
 
     // Generate initial seed
     let mut current_seed = initial_seed.unwrap_or_else(|| rand::thread_rng().gen());
-    let mut variation_index = 0u32;
+    let mut variation_index = initial_variation;
 
     // Current audio thread handle and stop flag
     let mut audio_handle: Option<thread::JoinHandle<()>> = None;
@@ -1227,8 +1236,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let demo_mode =
         cli.scale.is_none() && cli.root.is_none() && cli.pattern.is_none() && cli.groove.is_none();
 
-    if demo_mode || cli.seed.is_some() {
-        run_demo_mode(soundfont, cli.octaves, cli.bpm, cli.seed)?;
+    if demo_mode || cli.seed.is_some() || cli.variation > 0 {
+        run_demo_mode(soundfont, cli.octaves, cli.bpm, cli.seed, cli.variation)?;
     } else {
         let scale_name = cli.scale.unwrap_or_else(|| "major".to_string());
         let root = if let Some(ref r) = cli.root {
