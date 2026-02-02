@@ -40,6 +40,9 @@ hound = { version = "3", optional = true }
 shell-words = "1.1.1"
 clap = "4.5.53"
 clap_complete = "4.5.61"
+scale_omnibus = { path = "../scale_omnibus" }
+rand = "0.8"
+midly = "0.5.3"
 
 [build-dependencies]
 clap = "4.5.53"
@@ -48,4 +51,8 @@ dirs = "6.0.0"
 
 [[example]]
 name = "jingle_bells_synth"
+required-features = ["synth"]
+
+[[example]]
+name = "scale_arp"
 required-features = ["synth"]
