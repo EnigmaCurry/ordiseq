@@ -36,6 +36,9 @@ pkgs.mkShell {
       pkgs.zlib
       pkgs.openssl
       pkgs.glib
+      pkgs.gdk-pixbuf
+      pkgs.cairo
+      pkgs.pango
       pkgs.gtk3
       pkgs.webkitgtk_4_1
       pkgs.libsoup_3
