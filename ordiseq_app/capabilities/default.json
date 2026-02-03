@@ -1,0 +1,10 @@
+{
+  "$schema": "https://schemas.tauri.app/config/2/capability",
+  "identifier": "default",
+  "description": "Default capabilities for ordiseq_app",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "drag:default"
+  ]
+}
