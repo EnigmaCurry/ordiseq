@@ -48,6 +48,8 @@ build-plugin *args:
 
 # Run ordiseq_app in development mode
 run-app:
+    @if [ ! -d ordiseq_app/node_modules ]; then cd ordiseq_app && npm install; fi
+    @if [ ! -d ordiseq_app/frontend/node_modules ]; then cd ordiseq_app/frontend && npm install; fi
     cd ordiseq_app && npm run tauri dev
 
 # Build ordiseq_app frontend and Rust backend

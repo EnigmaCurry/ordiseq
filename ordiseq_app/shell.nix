@@ -19,6 +19,7 @@ pkgs.mkShell {
 
     # Additional Tauri v2 deps
     librsvg
+    alsa-lib
 
     # Libraries needed by cargo-tauri binary
     bzip2
@@ -38,6 +39,7 @@ pkgs.mkShell {
       pkgs.gtk3
       pkgs.webkitgtk_4_1
       pkgs.libsoup_3
+      pkgs.alsa-lib
     ]}:$LD_LIBRARY_PATH"
 
     echo "ordiseq_app dev shell"
