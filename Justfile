@@ -28,9 +28,6 @@ deps:
     @if ! command -v live-server >/dev/null; then \
         cargo install --locked live-server; \
     fi
-    @if ! command -v cargo-tauri >/dev/null; then \
-        cargo install --locked tauri-cli; \
-    fi
 
 # Install binary dependencies (gh-actions)
 bin-deps:
@@ -51,7 +48,7 @@ build-plugin *args:
 
 # Run ordiseq_app in development mode
 run-app:
-    cd ordiseq_app && cargo tauri dev
+    cd ordiseq_app && npm run tauri dev
 
 # Build ordiseq_app frontend and Rust backend
 build-app:
@@ -60,7 +57,7 @@ build-app:
 
 # Bundle ordiseq_app for distribution
 bundle-app:
-    cd ordiseq_app && cargo tauri build
+    cd ordiseq_app && npm run tauri build
 
 # Run tests
 test *args: 

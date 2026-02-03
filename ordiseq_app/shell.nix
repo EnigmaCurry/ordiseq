@@ -20,11 +20,26 @@ pkgs.mkShell {
     # Additional Tauri v2 deps
     librsvg
 
+    # Libraries needed by cargo-tauri binary
+    bzip2
+    zlib
+
     # Node.js for frontend
     nodejs_22
   ];
 
   shellHook = ''
+    # Add library paths for cargo-tauri binary compatibility
+    export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [
+      pkgs.bzip2
+      pkgs.zlib
+      pkgs.openssl
+      pkgs.glib
+      pkgs.gtk3
+      pkgs.webkitgtk_4_1
+      pkgs.libsoup_3
+    ]}:$LD_LIBRARY_PATH"
+
     echo "ordiseq_app dev shell"
     echo "Run: cargo tauri dev"
   '';
