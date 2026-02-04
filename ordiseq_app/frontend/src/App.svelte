@@ -5,27 +5,32 @@
   import SettingsPage from "./lib/pages/SettingsPage.svelte";
   import { currentPage } from "./lib/router";
   import { setUniforms, shaderConfig } from "./lib/shaderStore";
+  import { get } from "svelte/store";
 
   // Store the user's overlay setting
   let userOverlay = 0.9;
+  let previousPage: string | null = null;
 
-  // Track page changes to toggle overlay
+  // Track page changes to toggle overlay (only react to page changes, not shader changes)
   $effect(() => {
     const page = $currentPage;
-    const currentOverlay = $shaderConfig.uniforms.u_overlay as number;
+
+    // Only act on actual page changes
+    if (page === previousPage) return;
 
     if (page === "main") {
-      // Save current overlay and disable it
+      // Save current overlay and disable it (use get() to avoid reactive dependency)
+      const currentOverlay = get(shaderConfig).uniforms.u_overlay as number;
       if (currentOverlay > 0) {
         userOverlay = currentOverlay;
       }
       setUniforms({ u_overlay: 0 });
-    } else {
-      // Restore overlay on other pages
-      if (($shaderConfig.uniforms.u_overlay as number) === 0) {
-        setUniforms({ u_overlay: userOverlay });
-      }
+    } else if (previousPage === "main") {
+      // Only restore when leaving main page
+      setUniforms({ u_overlay: userOverlay });
     }
+
+    previousPage = page;
   });
 </script>
 
