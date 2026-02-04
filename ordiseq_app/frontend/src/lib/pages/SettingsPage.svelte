@@ -12,7 +12,7 @@
   let selectedShader = $state("retrogrid");
 
   // Retrogrid settings
-  let pitch = $state(0.90);
+  let pitch = $state(10.0);
   let speed = $state(0.16);
   let zoom = $state(2.0);
   let fisheye = $state(1.0);
@@ -138,14 +138,14 @@
         <div class="field">
           <label for="pitch">
             Camera Pitch
-            <span class="value">{pitch.toFixed(2)}</span>
+            <span class="value">{pitch.toFixed(0)}°</span>
           </label>
           <input
             type="range"
             id="pitch"
-            min="0.1"
-            max="0.9"
-            step="0.01"
+            min="0"
+            max="360"
+            step="1"
             value={pitch}
             oninput={updatePitch}
           />

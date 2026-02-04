@@ -13,7 +13,7 @@ export interface ShaderConfig {
 const defaultConfig: ShaderConfig = {
   fragmentShader: retrogridShader,
   uniforms: {
-    u_pitch: 0.90,
+    u_pitch: 10.0,
     u_speed: 0.16,
     u_zoom: 2.0,
     u_fisheye: 1.0,

@@ -2,7 +2,7 @@
 precision highp float;
 uniform float u_time;
 uniform vec2 u_resolution;
-uniform float u_pitch;    // 0.1 to 0.9 - camera pitch angle
+uniform float u_pitch;    // 0.0 to 360.0 - camera pitch angle in degrees
 uniform float u_speed;    // 0.0 to 2.0 - movement speed
 uniform float u_zoom;     // 0.5 to 2.0 - zoom level (affects central area size)
 uniform float u_fisheye;  // 0.0 to 1.0 - blend between perspective (0) and fisheye (1)
@@ -40,8 +40,8 @@ void main() {
     rayDir.y = cos(phi);
     rayDir.z = sin(phi) * sin(theta);
 
-    // Tilt camera down based on pitch
-    float pitchAngle = (1.0 - u_pitch) * 1.5;
+    // Tilt camera based on pitch (convert degrees to radians)
+    float pitchAngle = u_pitch * 3.14159 / 180.0;
     float cy = cos(pitchAngle);
     float sy = sin(pitchAngle);
     vec3 tilted = vec3(
