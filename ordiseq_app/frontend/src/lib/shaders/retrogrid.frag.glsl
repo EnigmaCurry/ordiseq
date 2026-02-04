@@ -11,10 +11,10 @@ void main() {
   vec3 pink = vec3(1.0, 0.08, 0.58);
 
   // Horizon position
-  float horizon = 0.35;
+  float horizon = 0.4;
 
-  // Grid cutoff - stop drawing grid here to avoid aliasing
-  float gridCutoff = 0.18;
+  // Grid cutoff - small buffer before horizon
+  float gridCutoff = 0.36;
 
   if (uv.y < gridCutoff) {
     // Ground plane with perspective
@@ -28,9 +28,9 @@ void main() {
     // Perspective-correct X coordinate
     float x = (uv.x - 0.5) * z * 2.5;
 
-    // Crisp grid lines
+    // Grid - line width increases with distance to stay visible and avoid aliasing
     float gridSize = 0.5;
-    float lineWidth = 0.025;
+    float lineWidth = 0.02 + z * 0.015;
 
     // Horizontal lines (Z direction)
     float zGrid = mod(z + zOffset, gridSize);
@@ -43,9 +43,12 @@ void main() {
     // Combine grid lines
     float grid = min(1.0, hLine + vLine);
 
-    fragColor = vec4(pink * grid, 1.0);
+    // Fade intensity slightly with distance (not fog, just dimming)
+    float intensity = 1.0 - smoothstep(5.0, 25.0, z) * 0.6;
+
+    fragColor = vec4(pink * grid * intensity, 1.0);
   } else if (uv.y < horizon) {
-    // Dark zone between grid and horizon - no interference
+    // Thin dark buffer
     fragColor = vec4(0.0, 0.0, 0.0, 1.0);
   } else {
     // Sky with horizon line
