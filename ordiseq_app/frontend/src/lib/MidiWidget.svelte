@@ -3,20 +3,13 @@
   import { startDrag } from "@crabnebula/tauri-plugin-drag";
 
   let { midiInfo }: { midiInfo: MidiInfo } = $props();
-  let debugMsg = $state("");
 
   async function handleMouseDown(event: MouseEvent) {
     event.preventDefault();
-    debugMsg = "Dragging: " + midiInfo.path;
-    try {
-      const result = await startDrag({
-        item: [midiInfo.path],
-        icon: "/icons/32x32.png",
-      });
-      debugMsg = "Drag complete: " + JSON.stringify(result);
-    } catch (err) {
-      debugMsg = "Drag error: " + String(err);
-    }
+    await startDrag({
+      item: [midiInfo.path],
+      icon: "/icons/32x32.png",
+    });
   }
 </script>
 
@@ -43,9 +36,6 @@
     <div class="title">{midiInfo.title}</div>
     <div class="details">{midiInfo.note_count} notes</div>
     <div class="hint">Drag to export</div>
-    {#if debugMsg}
-      <div class="debug">{debugMsg}</div>
-    {/if}
   </div>
 </div>
 
@@ -102,12 +92,5 @@
     font-size: 0.75rem;
     color: #6272a4;
     margin-top: 0.25rem;
-  }
-
-  .debug {
-    font-size: 0.7rem;
-    color: #50fa7b;
-    margin-top: 0.5rem;
-    word-break: break-all;
   }
 </style>
