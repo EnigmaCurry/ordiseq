@@ -13,13 +13,10 @@ void main() {
   // Horizon position
   float horizon = 0.4;
 
-  // Grid cutoff - small buffer before horizon
-  float gridCutoff = 0.36;
-
-  if (uv.y < gridCutoff) {
-    // Ground plane with perspective
+  if (uv.y < horizon) {
+    // Ground plane with perspective - vanishing point at horizon
     float depth = (horizon - uv.y) / horizon;
-    float z = 1.0 / (depth + 0.001);
+    float z = 1.0 / (depth + 0.0001);
 
     // Camera movement
     float speed = 0.5;
@@ -47,17 +44,14 @@ void main() {
     // Combine grid lines
     float grid = min(1.0, hLine + vLine);
 
-    // Fade to black at distance
-    float fade = 1.0 - smoothstep(8.0, 20.0, z);
+    // Fade to black approaching horizon
+    float fade = 1.0 - smoothstep(10.0, 50.0, z);
     grid *= fade;
 
     fragColor = vec4(pink * grid, 1.0);
-  } else if (uv.y < horizon) {
-    // Thin dark buffer
-    fragColor = vec4(0.0, 0.0, 0.0, 1.0);
   } else {
-    // Sky with horizon line
-    float horizonLine = exp(-pow((uv.y - horizon) * 60.0, 2.0));
-    fragColor = vec4(pink * horizonLine * 0.9, 1.0);
+    // Sky with horizon glow
+    float horizonGlow = exp(-pow((uv.y - horizon) * 30.0, 2.0));
+    fragColor = vec4(pink * horizonGlow * 0.5, 1.0);
   }
 }
