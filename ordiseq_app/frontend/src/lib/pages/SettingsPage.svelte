@@ -15,6 +15,7 @@
   let pitch = $state(0.90);
   let speed = $state(0.16);
   let zoom = $state(2.0);
+  let fisheye = $state(1.0);
   let color1 = $state("#ff1493");
   let color2 = $state("#00ffde");
   let color3 = $state("#bd93f9");
@@ -53,6 +54,7 @@
     if (config.uniforms.u_pitch !== undefined) pitch = config.uniforms.u_pitch as number;
     if (config.uniforms.u_speed !== undefined) speed = config.uniforms.u_speed as number;
     if (config.uniforms.u_zoom !== undefined) zoom = config.uniforms.u_zoom as number;
+    if (config.uniforms.u_fisheye !== undefined) fisheye = config.uniforms.u_fisheye as number;
     if (config.uniforms.u_color1 !== undefined) color1 = rgbToHex(config.uniforms.u_color1 as number[]);
     if (config.uniforms.u_color2 !== undefined) color2 = rgbToHex(config.uniforms.u_color2 as number[]);
     if (config.uniforms.u_color3 !== undefined) color3 = rgbToHex(config.uniforms.u_color3 as number[]);
@@ -71,6 +73,7 @@
         u_pitch: pitch,
         u_speed: speed,
         u_zoom: zoom,
+        u_fisheye: fisheye,
         u_color1: hexToRgb(color1),
         u_color2: hexToRgb(color2),
         u_color3: hexToRgb(color3),
@@ -95,6 +98,12 @@
     const input = event.target as HTMLInputElement;
     zoom = parseFloat(input.value);
     setUniforms({ u_zoom: zoom });
+  }
+
+  function updateFisheye(event: Event) {
+    const input = event.target as HTMLInputElement;
+    fisheye = parseFloat(input.value);
+    setUniforms({ u_fisheye: fisheye });
   }
 
   function updateColor(colorNum: number, event: Event) {
@@ -171,6 +180,22 @@
             step="0.01"
             value={zoom}
             oninput={updateZoom}
+          />
+        </div>
+
+        <div class="field">
+          <label for="fisheye">
+            Fisheye
+            <span class="value">{fisheye.toFixed(2)}</span>
+          </label>
+          <input
+            type="range"
+            id="fisheye"
+            min="0"
+            max="1"
+            step="0.01"
+            value={fisheye}
+            oninput={updateFisheye}
           />
         </div>
 

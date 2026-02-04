@@ -2,13 +2,14 @@
 precision highp float;
 uniform float u_time;
 uniform vec2 u_resolution;
-uniform float u_pitch;  // 0.1 to 0.9 - camera pitch angle
-uniform float u_speed;  // 0.0 to 2.0 - movement speed
-uniform float u_zoom;   // 0.5 to 2.0 - zoom level (affects central area size)
-uniform vec3 u_color1;  // Grid color 1
-uniform vec3 u_color2;  // Grid color 2
-uniform vec3 u_color3;  // Grid color 3
-uniform vec3 u_color4;  // Grid color 4
+uniform float u_pitch;    // 0.1 to 0.9 - camera pitch angle
+uniform float u_speed;    // 0.0 to 2.0 - movement speed
+uniform float u_zoom;     // 0.5 to 2.0 - zoom level (affects central area size)
+uniform float u_fisheye;  // 0.0 to 1.0 - blend between perspective (0) and fisheye (1)
+uniform vec3 u_color1;    // Grid color 1
+uniform vec3 u_color2;    // Grid color 2
+uniform vec3 u_color3;    // Grid color 3
+uniform vec3 u_color4;    // Grid color 4
 out vec4 fragColor;
 
 void main() {
@@ -28,7 +29,9 @@ void main() {
 
   if (r < maxR) {
     // Fisheye distortion - bend the view onto a sphere
-    float phi = r * 3.14159 * 0.8;  // Angular distance from center
+    float phi_fisheye = r * 3.14159 * 0.8;  // Angular distance from center (fisheye)
+    float phi_persp = atan(r, 1.0);          // Angular distance (perspective)
+    float phi = mix(phi_persp, phi_fisheye, u_fisheye);  // Blend between them
     float theta = atan(centered.y, centered.x);  // Angle around center
 
     // Spherical to cartesian for ray direction
