@@ -12,8 +12,8 @@
   let selectedShader = $state("retrogrid");
 
   // Retrogrid settings
-  let pitch = $state(10.0);
-  let speed = $state(0.16);
+  let pitch = $state(285.0);
+  let speed = $state(0.02);
   let zoom = $state(2.0);
   let fisheye = $state(1.0);
   let color1 = $state("#ff1493");
@@ -176,7 +176,7 @@
             type="range"
             id="zoom"
             min="0.5"
-            max="2.0"
+            max="4.0"
             step="0.01"
             value={zoom}
             oninput={updateZoom}
