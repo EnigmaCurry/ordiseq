@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { shaderConfig, type ShaderConfig } from "./shaderStore";
+  import vertexShaderSource from "./shaders/vertex.glsl?raw";
 
   let canvas: HTMLCanvasElement;
   let gl: WebGL2RenderingContext | null = null;
@@ -9,13 +10,6 @@
   let startTime: number;
   let uniformLocations: Map<string, WebGLUniformLocation | null> = new Map();
   let currentConfig: ShaderConfig | null = null;
-
-  const vertexShaderSource = `#version 300 es
-    in vec4 a_position;
-    void main() {
-      gl_Position = a_position;
-    }
-  `;
 
   function createShader(
     gl: WebGL2RenderingContext,
