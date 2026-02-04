@@ -12,9 +12,8 @@
   let selectedShader = $state("retrogrid");
 
   // Retrogrid settings
-  let pitch = $state(0.4);
-  let direction = $state(0.0);
-  let speed = $state(0.5);
+  let pitch = $state(0.20);
+  let speed = $state(0.16);
 
   // Sync initial state with store
   $effect(() => {
@@ -27,7 +26,6 @@
     }
     // Sync retrogrid uniforms
     if (config.uniforms.u_pitch !== undefined) pitch = config.uniforms.u_pitch as number;
-    if (config.uniforms.u_direction !== undefined) direction = config.uniforms.u_direction as number;
     if (config.uniforms.u_speed !== undefined) speed = config.uniforms.u_speed as number;
   });
 
@@ -39,7 +37,7 @@
 
     // Set default uniforms for retrogrid
     if (key === "retrogrid") {
-      setUniforms({ u_pitch: pitch, u_direction: direction, u_speed: speed });
+      setUniforms({ u_pitch: pitch, u_speed: speed });
     }
   }
 
@@ -47,12 +45,6 @@
     const input = event.target as HTMLInputElement;
     pitch = parseFloat(input.value);
     setUniforms({ u_pitch: pitch });
-  }
-
-  function updateDirection(event: Event) {
-    const input = event.target as HTMLInputElement;
-    direction = parseFloat(input.value);
-    setUniforms({ u_direction: direction });
   }
 
   function updateSpeed(event: Event) {
@@ -93,22 +85,6 @@
             step="0.01"
             value={pitch}
             oninput={updatePitch}
-          />
-        </div>
-
-        <div class="field">
-          <label for="direction">
-            Direction
-            <span class="value">{direction.toFixed(2)}</span>
-          </label>
-          <input
-            type="range"
-            id="direction"
-            min="-1"
-            max="1"
-            step="0.01"
-            value={direction}
-            oninput={updateDirection}
           />
         </div>
 

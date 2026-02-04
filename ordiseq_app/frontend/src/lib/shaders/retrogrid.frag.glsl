@@ -2,62 +2,84 @@
 precision highp float;
 uniform float u_time;
 uniform vec2 u_resolution;
-uniform float u_pitch;      // 0.1 to 0.9 - horizon position (camera pitch)
-uniform float u_direction;  // -1.0 to 1.0 - direction of travel
-uniform float u_speed;      // 0.0 to 2.0 - movement speed
+uniform float u_pitch;  // 0.1 to 0.9 - camera pitch angle
+uniform float u_speed;  // 0.0 to 2.0 - movement speed
 out vec4 fragColor;
 
 void main() {
   vec2 uv = gl_FragCoord.xy / u_resolution;
+  vec2 centered = uv - 0.5;
+
+  // Aspect ratio correction
+  float aspect = u_resolution.x / u_resolution.y;
+  centered.x *= aspect;
 
   // Hot pink color
   vec3 pink = vec3(1.0, 0.08, 0.58);
 
-  // Horizon position from pitch
-  float horizon = clamp(u_pitch, 0.1, 0.9);
+  // Fisheye projection - map screen to sphere
+  float r = length(centered);
+  float maxR = 0.8;
 
-  // Shift vanishing point based on direction (camera points where it travels)
-  float vanishX = 0.5 - u_direction * 0.3;
+  if (r < maxR) {
+    // Fisheye distortion - bend the view onto a sphere
+    float phi = r * 3.14159 * 0.8;  // Angular distance from center
+    float theta = atan(centered.y, centered.x);  // Angle around center
 
-  if (uv.y < horizon) {
-    // Ground plane with perspective - vanishing point shifts with direction
-    float depth = (horizon - uv.y) / horizon;
-    float z = 1.0 / (depth + 0.0001);
+    // Spherical to cartesian for ray direction
+    vec3 rayDir;
+    rayDir.x = sin(phi) * cos(theta);
+    rayDir.y = cos(phi);
+    rayDir.z = sin(phi) * sin(theta);
 
-    // Camera movement - travel in the direction we're pointing
-    float timeOffset = u_time * u_speed;
-    float zOffset = timeOffset;
-    float xOffset = timeOffset * u_direction * 2.0;
+    // Tilt camera down based on pitch
+    float pitchAngle = (1.0 - u_pitch) * 1.5;
+    float cy = cos(pitchAngle);
+    float sy = sin(pitchAngle);
+    vec3 tilted = vec3(
+      rayDir.x,
+      rayDir.y * cy - rayDir.z * sy,
+      rayDir.y * sy + rayDir.z * cy
+    );
 
-    // Perspective-correct X coordinate relative to shifted vanishing point
-    float x = (uv.x - vanishX) * z * 2.5 + xOffset;
+    // Ray-plane intersection for ground (y = -1)
+    if (tilted.y < -0.001) {
+      float t = -1.0 / tilted.y;
+      float x = tilted.x * t;
+      float z = tilted.z * t;
 
-    // Grid with constant line width
-    float gridSize = 0.5;
-    float lineWidth = 0.02;
+      // Camera movement
+      z += u_time * u_speed * 5.0;
 
-    // Use screen-space derivatives for anti-aliasing
-    float zVal = z + zOffset;
-    float zGrid = mod(zVal, gridSize);
-    float zAA = fwidth(zVal) * 1.5;
-    float hLine = smoothstep(lineWidth + zAA, lineWidth, zGrid) +
-                  smoothstep(gridSize - lineWidth - zAA, gridSize - lineWidth, zGrid);
+      // Grid
+      float gridSize = 1.0;
+      float lineWidth = 0.03;
 
-    float xGrid = mod(x + gridSize * 0.5, gridSize);
-    float xAA = fwidth(x) * 1.5;
-    float vLine = smoothstep(lineWidth + xAA, lineWidth, xGrid) +
-                  smoothstep(gridSize - lineWidth - xAA, gridSize - lineWidth, xGrid);
+      // Anti-aliased grid lines
+      float xGrid = mod(x, gridSize);
+      float zGrid = mod(z, gridSize);
+      float xAA = fwidth(x) * 1.5;
+      float zAA = fwidth(z) * 1.5;
 
-    // Combine grid lines
-    float grid = min(1.0, hLine + vLine);
+      float hLine = smoothstep(lineWidth + zAA, lineWidth, zGrid) +
+                    smoothstep(gridSize - lineWidth - zAA, gridSize - lineWidth, zGrid);
+      float vLine = smoothstep(lineWidth + xAA, lineWidth, xGrid) +
+                    smoothstep(gridSize - lineWidth - xAA, gridSize - lineWidth, xGrid);
 
-    // Fade to black approaching horizon (stronger fade to limit convergence brightness)
-    float fade = 1.0 - smoothstep(5.0, 20.0, z);
-    grid *= fade * fade;  // Square for more aggressive fade near horizon
+      float grid = min(1.0, hLine + vLine);
 
-    fragColor = vec4(pink * grid, 1.0);
+      // Distance fade
+      float dist = length(vec2(x, z - u_time * u_speed * 5.0));
+      float fade = 1.0 - smoothstep(5.0, 30.0, dist);
+      grid *= fade;
+
+      fragColor = vec4(pink * grid, 1.0);
+    } else {
+      // Sky
+      fragColor = vec4(0.0, 0.0, 0.0, 1.0);
+    }
   } else {
-    // Sky - pure black, no glow
+    // Outside fisheye - black
     fragColor = vec4(0.0, 0.0, 0.0, 1.0);
   }
 }
