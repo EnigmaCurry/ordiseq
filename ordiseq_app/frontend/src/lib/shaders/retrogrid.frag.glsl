@@ -2,6 +2,9 @@
 precision highp float;
 uniform float u_time;
 uniform vec2 u_resolution;
+uniform float u_pitch;  // 0.1 to 0.9 - horizon position (camera pitch)
+uniform float u_yaw;    // -1.0 to 1.0 - horizontal offset (camera yaw)
+uniform float u_speed;  // 0.0 to 2.0 - movement speed
 out vec4 fragColor;
 
 void main() {
@@ -10,8 +13,8 @@ void main() {
   // Hot pink color
   vec3 pink = vec3(1.0, 0.08, 0.58);
 
-  // Horizon position
-  float horizon = 0.4;
+  // Horizon position from pitch
+  float horizon = clamp(u_pitch, 0.1, 0.9);
 
   if (uv.y < horizon) {
     // Ground plane with perspective - vanishing point at horizon
@@ -19,11 +22,10 @@ void main() {
     float z = 1.0 / (depth + 0.0001);
 
     // Camera movement
-    float speed = 0.5;
-    float zOffset = u_time * speed;
+    float zOffset = u_time * u_speed;
 
-    // Perspective-correct X coordinate
-    float x = (uv.x - 0.5) * z * 2.5;
+    // Perspective-correct X coordinate with yaw offset
+    float x = (uv.x - 0.5 + u_yaw) * z * 2.5;
 
     // Grid with constant line width
     float gridSize = 0.5;
