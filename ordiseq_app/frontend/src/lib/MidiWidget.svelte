@@ -124,6 +124,7 @@
 <style>
   .midi-widget {
     display: flex;
+    flex-wrap: nowrap;
     align-items: stretch;
     gap: 0;
     background-color: #44475a;
@@ -162,7 +163,8 @@
     align-items: center;
     gap: 1rem;
     padding: 1rem;
-    flex: 1;
+    flex: 1 1 0;
+    min-width: 0;
     cursor: grab;
     -webkit-user-select: none;
     user-select: none;
