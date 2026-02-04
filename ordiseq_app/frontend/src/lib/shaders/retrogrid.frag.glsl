@@ -28,25 +28,30 @@ void main() {
     // Perspective-correct X coordinate
     float x = (uv.x - 0.5) * z * 2.5;
 
-    // Grid - line width increases with distance to stay visible and avoid aliasing
+    // Grid with constant line width
     float gridSize = 0.5;
-    float lineWidth = 0.02 + z * 0.015;
+    float lineWidth = 0.02;
 
-    // Horizontal lines (Z direction)
-    float zGrid = mod(z + zOffset, gridSize);
-    float hLine = step(zGrid, lineWidth) + step(gridSize - lineWidth, zGrid);
+    // Use screen-space derivatives for anti-aliasing
+    float zVal = z + zOffset;
+    float zGrid = mod(zVal, gridSize);
+    float zAA = fwidth(zVal) * 1.5;
+    float hLine = smoothstep(lineWidth + zAA, lineWidth, zGrid) +
+                  smoothstep(gridSize - lineWidth - zAA, gridSize - lineWidth, zGrid);
 
-    // Vertical lines (X direction)
     float xGrid = mod(x + gridSize * 0.5, gridSize);
-    float vLine = step(xGrid, lineWidth) + step(gridSize - lineWidth, xGrid);
+    float xAA = fwidth(x) * 1.5;
+    float vLine = smoothstep(lineWidth + xAA, lineWidth, xGrid) +
+                  smoothstep(gridSize - lineWidth - xAA, gridSize - lineWidth, xGrid);
 
     // Combine grid lines
     float grid = min(1.0, hLine + vLine);
 
-    // Fade intensity slightly with distance (not fog, just dimming)
-    float intensity = 1.0 - smoothstep(5.0, 25.0, z) * 0.6;
+    // Fade to black at distance
+    float fade = 1.0 - smoothstep(8.0, 20.0, z);
+    grid *= fade;
 
-    fragColor = vec4(pink * grid * intensity, 1.0);
+    fragColor = vec4(pink * grid, 1.0);
   } else if (uv.y < horizon) {
     // Thin dark buffer
     fragColor = vec4(0.0, 0.0, 0.0, 1.0);
