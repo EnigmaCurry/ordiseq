@@ -4,8 +4,11 @@
 
   let { midiInfo }: { midiInfo: MidiInfo } = $props();
 
-  function handleMouseDown() {
-    startDrag({ item: [midiInfo.path] });
+  function handleMouseDown(event: MouseEvent) {
+    event.preventDefault();
+    startDrag({ item: [midiInfo.path] }).catch((err) => {
+      console.error("Drag failed:", err);
+    });
   }
 </script>
 
@@ -14,6 +17,7 @@
   role="button"
   tabindex="0"
   onmousedown={handleMouseDown}
+  ondragstart={(e) => e.preventDefault()}
 >
   <div class="icon">
     <svg
@@ -45,6 +49,7 @@
     border: 2px dashed #6272a4;
     border-radius: 8px;
     cursor: grab;
+    -webkit-user-select: none;
     user-select: none;
     transition: all 0.2s ease;
   }
