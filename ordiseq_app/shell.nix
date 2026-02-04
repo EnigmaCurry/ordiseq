@@ -34,6 +34,7 @@ pkgs.mkShell {
     # Windows cross-compilation
     llvmPackages.clang
     llvmPackages.lld
+    llvmPackages.llvm
   ];
 
   shellHook = ''
