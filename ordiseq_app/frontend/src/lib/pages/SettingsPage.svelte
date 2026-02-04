@@ -177,7 +177,7 @@
               checked={animated}
               onchange={updateAnimated}
             />
-            Animated
+            Dynamic
           </label>
         </div>
 
