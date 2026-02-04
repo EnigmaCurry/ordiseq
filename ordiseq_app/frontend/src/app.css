@@ -19,9 +19,24 @@ body {
   align-items: center;
   min-height: 100vh;
   padding: 1rem;
+  background: transparent;
+}
+
+/* Transparent black overlay between shader and content */
+#shader-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(0, 0, 0, 0.4);
+  z-index: -1;
+  pointer-events: none;
 }
 
 #app {
+  position: relative;
+  z-index: 1;
   width: 100%;
   max-width: 500px;
 }
