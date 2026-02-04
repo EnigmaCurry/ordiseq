@@ -1,0 +1,142 @@
+<script lang="ts">
+  import { currentPage, type Page } from "./router";
+
+  let menuOpen = $state(false);
+
+  const pages: { id: Page; label: string }[] = [
+    { id: "settings", label: "Settings" },
+    { id: "test", label: "Test" },
+  ];
+
+  function navigate(page: Page) {
+    currentPage.set(page);
+    menuOpen = false;
+  }
+
+  function toggleMenu() {
+    menuOpen = !menuOpen;
+  }
+
+  function handleKeydown(event: KeyboardEvent) {
+    if (event.key === "Escape" && menuOpen) {
+      menuOpen = false;
+    }
+  }
+</script>
+
+<svelte:window onkeydown={handleKeydown} />
+
+<nav class="navigation">
+  <button class="hamburger" onclick={toggleMenu} aria-label="Toggle menu">
+    <span class="hamburger-line" class:open={menuOpen}></span>
+    <span class="hamburger-line" class:open={menuOpen}></span>
+    <span class="hamburger-line" class:open={menuOpen}></span>
+  </button>
+
+  {#if menuOpen}
+    <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+    <div class="menu-backdrop" onclick={() => (menuOpen = false)}></div>
+    <div class="menu">
+      {#each pages as page}
+        <button
+          class="menu-item"
+          class:active={$currentPage === page.id}
+          onclick={() => navigate(page.id)}
+        >
+          {page.label}
+        </button>
+      {/each}
+    </div>
+  {/if}
+</nav>
+
+<style>
+  .navigation {
+    position: fixed;
+    top: 1rem;
+    left: 1rem;
+    z-index: 100;
+  }
+
+  .hamburger {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 5px;
+    width: 40px;
+    height: 40px;
+    padding: 8px;
+    background-color: rgba(68, 71, 90, 0.8);
+    border: 1px solid #6272a4;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+  }
+
+  .hamburger:hover {
+    background-color: rgba(98, 114, 164, 0.8);
+  }
+
+  .hamburger-line {
+    width: 20px;
+    height: 2px;
+    background-color: #f8f8f2;
+    transition: transform 0.2s ease, opacity 0.2s ease;
+  }
+
+  .hamburger-line.open:nth-child(1) {
+    transform: translateY(7px) rotate(45deg);
+  }
+
+  .hamburger-line.open:nth-child(2) {
+    opacity: 0;
+  }
+
+  .hamburger-line.open:nth-child(3) {
+    transform: translateY(-7px) rotate(-45deg);
+  }
+
+  .menu-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(0, 0, 0, 0.3);
+    z-index: -1;
+  }
+
+  .menu {
+    position: absolute;
+    top: 50px;
+    left: 0;
+    min-width: 150px;
+    background-color: rgba(40, 42, 54, 0.95);
+    border: 1px solid #6272a4;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .menu-item {
+    display: block;
+    width: 100%;
+    padding: 0.75rem 1rem;
+    text-align: left;
+    font-size: 1rem;
+    color: #f8f8f2;
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+  }
+
+  .menu-item:hover {
+    background-color: #44475a;
+  }
+
+  .menu-item.active {
+    color: #ff79c6;
+    background-color: rgba(255, 121, 198, 0.1);
+  }
+</style>
