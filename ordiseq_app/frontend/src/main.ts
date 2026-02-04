@@ -2,6 +2,7 @@ import "./app.css";
 import App from "./App.svelte";
 import ShaderBackground from "./lib/ShaderBackground.svelte";
 import { mount } from "svelte";
+import { themeColors, applyTheme } from "./lib/themeStore";
 
 // Create shader background container
 const shaderContainer = document.createElement("div");
@@ -22,6 +23,9 @@ const shaderBackground = mount(ShaderBackground, {
 const app = mount(App, {
   target: document.getElementById("app")!,
 });
+
+// Subscribe to theme colors and apply them
+themeColors.subscribe(applyTheme);
 
 export { shaderBackground };
 export default app;

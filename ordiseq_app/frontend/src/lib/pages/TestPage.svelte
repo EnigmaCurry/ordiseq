@@ -68,12 +68,12 @@
 
   h1 {
     font-size: 2.5rem;
-    color: #ff79c6;
+    color: rgb(var(--color-1));
     margin-bottom: 0.25rem;
   }
 
   .subtitle {
-    color: #6272a4;
+    color: rgba(var(--color-3), 0.7);
     margin-bottom: 2rem;
   }
 
@@ -94,8 +94,8 @@
 
   .error {
     padding: 0.75rem;
-    background-color: #ff5555;
-    color: #f8f8f2;
+    background-color: rgba(var(--color-1), 0.8);
+    color: #fff;
     border-radius: 6px;
     margin-bottom: 1rem;
   }

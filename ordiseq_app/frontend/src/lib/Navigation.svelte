@@ -67,21 +67,21 @@
     width: 40px;
     height: 40px;
     padding: 8px;
-    background-color: rgba(68, 71, 90, 0.8);
-    border: 1px solid #6272a4;
+    background-color: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(var(--color-3), 0.5);
     border-radius: 6px;
     cursor: pointer;
     transition: background-color 0.2s ease;
   }
 
   .hamburger:hover {
-    background-color: rgba(98, 114, 164, 0.8);
+    background-color: rgba(var(--color-3), 0.3);
   }
 
   .hamburger-line {
     width: 20px;
     height: 2px;
-    background-color: #f8f8f2;
+    background-color: rgb(var(--color-2));
     transition: transform 0.2s ease, opacity 0.2s ease;
   }
 
@@ -112,8 +112,8 @@
     top: 50px;
     left: 0;
     min-width: 150px;
-    background-color: rgba(40, 42, 54, 0.95);
-    border: 1px solid #6272a4;
+    background-color: rgba(0, 0, 0, 0.9);
+    border: 1px solid rgba(var(--color-3), 0.5);
     border-radius: 6px;
     overflow: hidden;
   }
@@ -132,11 +132,11 @@
   }
 
   .menu-item:hover {
-    background-color: #44475a;
+    background-color: rgba(var(--color-3), 0.2);
   }
 
   .menu-item.active {
-    color: #ff79c6;
-    background-color: rgba(255, 121, 198, 0.1);
+    color: rgb(var(--color-1));
+    background-color: rgba(var(--color-1), 0.1);
   }
 </style>

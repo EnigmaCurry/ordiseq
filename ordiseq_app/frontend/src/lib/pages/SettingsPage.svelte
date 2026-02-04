@@ -249,26 +249,26 @@
 
   h1 {
     font-size: 2.5rem;
-    color: #ff79c6;
+    color: rgb(var(--color-1));
     margin-bottom: 0.25rem;
   }
 
   .subtitle {
-    color: #6272a4;
+    color: rgba(var(--color-3), 0.7);
     margin-bottom: 2rem;
   }
 
   .settings-section {
     text-align: left;
-    background-color: rgba(68, 71, 90, 0.5);
-    border: 1px solid #6272a4;
+    background-color: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(var(--color-3), 0.5);
     border-radius: 8px;
     padding: 1.5rem;
   }
 
   h2 {
     font-size: 1.25rem;
-    color: #bd93f9;
+    color: rgb(var(--color-3));
     margin-bottom: 1rem;
   }
 
@@ -287,7 +287,7 @@
   .shader-settings {
     margin-top: 1.5rem;
     padding-top: 1rem;
-    border-top: 1px solid #6272a4;
+    border-top: 1px solid rgba(var(--color-3), 0.5);
   }
 
   label {
@@ -298,7 +298,7 @@
 
   .value {
     font-family: monospace;
-    color: #8be9fd;
+    color: rgb(var(--color-2));
     font-size: 0.9rem;
   }
 
@@ -306,7 +306,7 @@
     width: 100%;
     height: 6px;
     margin-top: 0.5rem;
-    background: #44475a;
+    background: rgba(var(--color-3), 0.3);
     border-radius: 3px;
     outline: none;
     -webkit-appearance: none;
@@ -318,7 +318,7 @@
     appearance: none;
     width: 16px;
     height: 16px;
-    background: #ff79c6;
+    background: rgb(var(--color-1));
     border-radius: 50%;
     cursor: pointer;
   }
@@ -326,7 +326,7 @@
   input[type="range"]::-moz-range-thumb {
     width: 16px;
     height: 16px;
-    background: #ff79c6;
+    background: rgb(var(--color-1));
     border-radius: 50%;
     cursor: pointer;
     border: none;
@@ -352,7 +352,7 @@
   input[type="color"] {
     width: 100%;
     height: 40px;
-    border: 1px solid #6272a4;
+    border: 1px solid rgba(var(--color-3), 0.5);
     border-radius: 6px;
     cursor: pointer;
     background: none;

@@ -125,8 +125,8 @@
   .midi-widget {
     display: grid;
     grid-template-columns: 72px 1fr;
-    background-color: #44475a;
-    border: 2px solid #6272a4;
+    background-color: rgba(0, 0, 0, 0.5);
+    border: 2px solid rgba(var(--color-3), 0.5);
     border-radius: 8px;
     overflow: hidden;
   }
@@ -137,24 +137,24 @@
     justify-content: center;
     padding: 1rem 0;
     margin: 0;
-    background-color: #50fa7b;
+    background-color: rgb(var(--color-4));
     border: none;
     border-radius: 0;
     cursor: pointer;
-    color: #282a36;
+    color: #000;
     transition: all 0.2s ease;
   }
 
   .play-button:hover {
-    background-color: #5fff88;
+    filter: brightness(1.2);
   }
 
   .play-button.playing {
-    background-color: #ff5555;
+    background-color: rgb(var(--color-1));
   }
 
   .play-button.playing:hover {
-    background-color: #ff6666;
+    filter: brightness(1.2);
   }
 
   .drag-area {
@@ -166,20 +166,20 @@
     -webkit-user-select: none;
     user-select: none;
     transition: all 0.2s ease;
-    border-left: 2px dashed #6272a4;
+    border-left: 2px dashed rgba(var(--color-3), 0.5);
   }
 
   .drag-area:hover {
-    background-color: #4d5066;
+    background-color: rgba(var(--color-3), 0.1);
   }
 
   .drag-area:active {
     cursor: grabbing;
-    background-color: #525570;
+    background-color: rgba(var(--color-3), 0.2);
   }
 
   .icon {
-    color: #ff79c6;
+    color: rgb(var(--color-1));
     flex-shrink: 0;
   }
 
@@ -199,18 +199,18 @@
 
   .details {
     font-size: 0.875rem;
-    color: #8be9fd;
+    color: rgb(var(--color-2));
   }
 
   .hint {
     font-size: 0.75rem;
-    color: #6272a4;
+    color: rgba(var(--color-3), 0.7);
     margin-top: 0.25rem;
   }
 
   .error {
     font-size: 0.7rem;
-    color: #ff5555;
+    color: rgb(var(--color-1));
     margin-top: 0.5rem;
     padding: 0 0.5rem;
   }
