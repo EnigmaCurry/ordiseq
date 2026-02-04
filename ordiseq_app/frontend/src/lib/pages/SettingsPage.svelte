@@ -6,6 +6,7 @@
     { value: "plasma", label: "Plasma" },
     { value: "waves", label: "Waves" },
     { value: "noise", label: "Noise" },
+    { value: "retrogrid", label: "Retro Grid" },
   ];
 
   let selectedShader = $state("default");

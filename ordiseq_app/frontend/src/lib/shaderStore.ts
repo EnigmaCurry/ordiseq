@@ -3,6 +3,7 @@ import defaultFragmentShader from "./shaders/default.frag.glsl?raw";
 import plasmaShader from "./shaders/plasma.frag.glsl?raw";
 import wavesShader from "./shaders/waves.frag.glsl?raw";
 import noiseShader from "./shaders/noise.frag.glsl?raw";
+import retrogridShader from "./shaders/retrogrid.frag.glsl?raw";
 
 export interface ShaderConfig {
   fragmentShader: string;
@@ -50,4 +51,5 @@ export const exampleShaders = {
   plasma: plasmaShader,
   waves: wavesShader,
   noise: noiseShader,
+  retrogrid: retrogridShader,
 };
