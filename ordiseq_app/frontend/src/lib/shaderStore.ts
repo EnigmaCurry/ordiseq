@@ -14,7 +14,7 @@ const defaultConfig: ShaderConfig = {
   fragmentShader: retrogridShader,
   uniforms: {
     u_pitch: 0.4,
-    u_yaw: 0.0,
+    u_direction: 0.0,
     u_speed: 0.5,
   },
 };

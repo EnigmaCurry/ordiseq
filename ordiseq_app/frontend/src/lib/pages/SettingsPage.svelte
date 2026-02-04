@@ -13,7 +13,7 @@
 
   // Retrogrid settings
   let pitch = $state(0.4);
-  let yaw = $state(0.0);
+  let direction = $state(0.0);
   let speed = $state(0.5);
 
   // Sync initial state with store
@@ -27,7 +27,7 @@
     }
     // Sync retrogrid uniforms
     if (config.uniforms.u_pitch !== undefined) pitch = config.uniforms.u_pitch as number;
-    if (config.uniforms.u_yaw !== undefined) yaw = config.uniforms.u_yaw as number;
+    if (config.uniforms.u_direction !== undefined) direction = config.uniforms.u_direction as number;
     if (config.uniforms.u_speed !== undefined) speed = config.uniforms.u_speed as number;
   });
 
@@ -39,7 +39,7 @@
 
     // Set default uniforms for retrogrid
     if (key === "retrogrid") {
-      setUniforms({ u_pitch: pitch, u_yaw: yaw, u_speed: speed });
+      setUniforms({ u_pitch: pitch, u_direction: direction, u_speed: speed });
     }
   }
 
@@ -49,10 +49,10 @@
     setUniforms({ u_pitch: pitch });
   }
 
-  function updateYaw(event: Event) {
+  function updateDirection(event: Event) {
     const input = event.target as HTMLInputElement;
-    yaw = parseFloat(input.value);
-    setUniforms({ u_yaw: yaw });
+    direction = parseFloat(input.value);
+    setUniforms({ u_direction: direction });
   }
 
   function updateSpeed(event: Event) {
@@ -97,18 +97,18 @@
         </div>
 
         <div class="field">
-          <label for="yaw">
-            Camera Yaw
-            <span class="value">{yaw.toFixed(2)}</span>
+          <label for="direction">
+            Direction
+            <span class="value">{direction.toFixed(2)}</span>
           </label>
           <input
             type="range"
-            id="yaw"
+            id="direction"
             min="-1"
             max="1"
             step="0.01"
-            value={yaw}
-            oninput={updateYaw}
+            value={direction}
+            oninput={updateDirection}
           />
         </div>
 

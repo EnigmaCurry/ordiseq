@@ -2,9 +2,9 @@
 precision highp float;
 uniform float u_time;
 uniform vec2 u_resolution;
-uniform float u_pitch;  // 0.1 to 0.9 - horizon position (camera pitch)
-uniform float u_yaw;    // -1.0 to 1.0 - horizontal offset (camera yaw)
-uniform float u_speed;  // 0.0 to 2.0 - movement speed
+uniform float u_pitch;      // 0.1 to 0.9 - horizon position (camera pitch)
+uniform float u_direction;  // -1.0 to 1.0 - direction of travel
+uniform float u_speed;      // 0.0 to 2.0 - movement speed
 out vec4 fragColor;
 
 void main() {
@@ -21,11 +21,13 @@ void main() {
     float depth = (horizon - uv.y) / horizon;
     float z = 1.0 / (depth + 0.0001);
 
-    // Camera movement
-    float zOffset = u_time * u_speed;
+    // Camera movement - direction affects both X and Z motion
+    float timeOffset = u_time * u_speed;
+    float zOffset = timeOffset * (1.0 - abs(u_direction) * 0.3);
+    float xOffset = timeOffset * u_direction;
 
-    // Perspective-correct X coordinate with yaw offset
-    float x = (uv.x - 0.5 + u_yaw) * z * 2.5;
+    // Perspective-correct X coordinate
+    float x = (uv.x - 0.5) * z * 2.5 + xOffset;
 
     // Grid with constant line width
     float gridSize = 0.5;
@@ -46,14 +48,13 @@ void main() {
     // Combine grid lines
     float grid = min(1.0, hLine + vLine);
 
-    // Fade to black approaching horizon
-    float fade = 1.0 - smoothstep(10.0, 50.0, z);
-    grid *= fade;
+    // Fade to black approaching horizon (stronger fade to limit convergence brightness)
+    float fade = 1.0 - smoothstep(5.0, 20.0, z);
+    grid *= fade * fade;  // Square for more aggressive fade near horizon
 
     fragColor = vec4(pink * grid, 1.0);
   } else {
-    // Sky with horizon glow
-    float horizonGlow = exp(-pow((uv.y - horizon) * 30.0, 2.0));
-    fragColor = vec4(pink * horizonGlow * 0.5, 1.0);
+    // Sky - pure black, no glow
+    fragColor = vec4(0.0, 0.0, 0.0, 1.0);
   }
 }
