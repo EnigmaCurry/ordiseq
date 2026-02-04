@@ -123,10 +123,8 @@
 
 <style>
   .midi-widget {
-    display: flex;
-    flex-wrap: nowrap;
-    align-items: stretch;
-    gap: 0;
+    display: grid;
+    grid-template-columns: 72px 1fr;
     background-color: #44475a;
     border: 2px solid #6272a4;
     border-radius: 8px;
@@ -137,10 +135,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 72px;
-    min-width: 72px;
-    max-width: 72px;
-    padding: 0;
+    padding: 1rem 0;
     margin: 0;
     background-color: #50fa7b;
     border: none;
@@ -148,8 +143,6 @@
     cursor: pointer;
     color: #282a36;
     transition: all 0.2s ease;
-    flex-shrink: 0;
-    flex-grow: 0;
   }
 
   .play-button:hover {
@@ -169,8 +162,6 @@
     align-items: center;
     gap: 1rem;
     padding: 1rem;
-    flex: 1 1 0;
-    min-width: 0;
     cursor: grab;
     -webkit-user-select: none;
     user-select: none;
