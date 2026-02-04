@@ -1,4 +1,4 @@
-import { writable } from "svelte/store";
+import { writable, get } from "svelte/store";
 import defaultFragmentShader from "./shaders/default.frag.glsl?raw";
 import plasmaShader from "./shaders/plasma.frag.glsl?raw";
 import wavesShader from "./shaders/waves.frag.glsl?raw";
@@ -8,6 +8,13 @@ import retrogridShader from "./shaders/retrogrid.frag.glsl?raw";
 export interface ShaderConfig {
   fragmentShader: string;
   uniforms: Record<string, number | number[]>;
+}
+
+export interface AnimationConfig {
+  enabled: boolean;
+  basePitch: number;
+  baseZoom: number;
+  baseFisheye: number;
 }
 
 const defaultConfig: ShaderConfig = {
@@ -63,3 +70,88 @@ export const exampleShaders = {
   noise: noiseShader,
   retrogrid: retrogridShader,
 };
+
+// Animation state
+export const animationConfig = writable<AnimationConfig>({
+  enabled: true,
+  basePitch: 0.0,
+  baseZoom: 12.0,
+  baseFisheye: 0.04,
+});
+
+let animationFrame: number | null = null;
+let startTime = performance.now();
+
+function smoothNoise(t: number, freq: number, phase: number): number {
+  // Combine multiple sine waves for organic movement
+  return (
+    Math.sin(t * freq + phase) * 0.5 +
+    Math.sin(t * freq * 0.7 + phase * 1.3) * 0.3 +
+    Math.sin(t * freq * 1.3 + phase * 0.7) * 0.2
+  );
+}
+
+function animationLoop() {
+  const config = get(shaderConfig);
+  const anim = get(animationConfig);
+
+  if (!anim.enabled) {
+    animationFrame = requestAnimationFrame(animationLoop);
+    return;
+  }
+
+  const speed = (config.uniforms.u_speed as number) || 0.02;
+  const elapsed = (performance.now() - startTime) / 1000;
+  const t = elapsed * speed * 10;
+
+  // Calculate animated values with different frequencies and phases
+  const pitchOffset = smoothNoise(t, 0.1, 0) * 180; // +/- 180 degrees
+  const zoomOffset = smoothNoise(t, 0.07, 2.5) * 8; // +/- 8 zoom
+  const fisheyeOffset = smoothNoise(t, 0.13, 5.0) * 0.3; // +/- 0.3
+
+  const newPitch = ((anim.basePitch + pitchOffset) % 360 + 360) % 360;
+  const newZoom = Math.max(0.5, Math.min(32, anim.baseZoom + zoomOffset));
+  const newFisheye = Math.max(0, Math.min(1, anim.baseFisheye + fisheyeOffset));
+
+  shaderConfig.update((c) => ({
+    ...c,
+    uniforms: {
+      ...c.uniforms,
+      u_pitch: newPitch,
+      u_zoom: newZoom,
+      u_fisheye: newFisheye,
+    },
+  }));
+
+  animationFrame = requestAnimationFrame(animationLoop);
+}
+
+export function startAnimation() {
+  if (animationFrame === null) {
+    startTime = performance.now();
+    animationFrame = requestAnimationFrame(animationLoop);
+  }
+}
+
+export function stopAnimation() {
+  if (animationFrame !== null) {
+    cancelAnimationFrame(animationFrame);
+    animationFrame = null;
+  }
+}
+
+export function setAnimationEnabled(enabled: boolean) {
+  animationConfig.update((c) => ({ ...c, enabled }));
+}
+
+export function setAnimationBase(pitch: number, zoom: number, fisheye: number) {
+  animationConfig.update((c) => ({
+    ...c,
+    basePitch: pitch,
+    baseZoom: zoom,
+    baseFisheye: fisheye,
+  }));
+}
+
+// Start animation by default
+startAnimation();

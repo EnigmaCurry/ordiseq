@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { setShader, setUniforms, exampleShaders, shaderConfig } from "../shaderStore";
+  import { setShader, setUniforms, exampleShaders, shaderConfig, animationConfig, setAnimationEnabled, setAnimationBase } from "../shaderStore";
 
   const shaderOptions = [
     { value: "retrogrid", label: "Retro Grid" },
@@ -17,6 +17,7 @@
   let zoom = $state(12.0);
   let fisheye = $state(0.04);
   let overlay = $state(0.4);
+  let animated = $state(true);
   let color1 = $state("#ff1493");
   let color2 = $state("#00ffde");
   let color3 = $state("#bd93f9");
@@ -45,18 +46,26 @@
   // Sync initial state with store
   $effect(() => {
     const config = $shaderConfig;
+    const anim = $animationConfig;
     for (const [key, value] of Object.entries(exampleShaders)) {
       if (value === config.fragmentShader) {
         selectedShader = key;
         break;
       }
     }
-    // Sync retrogrid uniforms
-    if (config.uniforms.u_pitch !== undefined) pitch = config.uniforms.u_pitch as number;
+    // Sync retrogrid uniforms - use base values when animated
+    if (anim.enabled) {
+      pitch = anim.basePitch;
+      zoom = anim.baseZoom;
+      fisheye = anim.baseFisheye;
+    } else {
+      if (config.uniforms.u_pitch !== undefined) pitch = config.uniforms.u_pitch as number;
+      if (config.uniforms.u_zoom !== undefined) zoom = config.uniforms.u_zoom as number;
+      if (config.uniforms.u_fisheye !== undefined) fisheye = config.uniforms.u_fisheye as number;
+    }
     if (config.uniforms.u_speed !== undefined) speed = config.uniforms.u_speed as number;
-    if (config.uniforms.u_zoom !== undefined) zoom = config.uniforms.u_zoom as number;
-    if (config.uniforms.u_fisheye !== undefined) fisheye = config.uniforms.u_fisheye as number;
     if (config.uniforms.u_overlay !== undefined) overlay = config.uniforms.u_overlay as number;
+    animated = anim.enabled;
     if (config.uniforms.u_color1 !== undefined) color1 = rgbToHex(config.uniforms.u_color1 as number[]);
     if (config.uniforms.u_color2 !== undefined) color2 = rgbToHex(config.uniforms.u_color2 as number[]);
     if (config.uniforms.u_color3 !== undefined) color3 = rgbToHex(config.uniforms.u_color3 as number[]);
@@ -88,7 +97,8 @@
   function updatePitch(event: Event) {
     const input = event.target as HTMLInputElement;
     pitch = parseFloat(input.value);
-    setUniforms({ u_pitch: pitch });
+    setAnimationBase(pitch, zoom, fisheye);
+    if (!animated) setUniforms({ u_pitch: pitch });
   }
 
   function updateSpeed(event: Event) {
@@ -100,19 +110,31 @@
   function updateZoom(event: Event) {
     const input = event.target as HTMLInputElement;
     zoom = parseFloat(input.value);
-    setUniforms({ u_zoom: zoom });
+    setAnimationBase(pitch, zoom, fisheye);
+    if (!animated) setUniforms({ u_zoom: zoom });
   }
 
   function updateFisheye(event: Event) {
     const input = event.target as HTMLInputElement;
     fisheye = parseFloat(input.value);
-    setUniforms({ u_fisheye: fisheye });
+    setAnimationBase(pitch, zoom, fisheye);
+    if (!animated) setUniforms({ u_fisheye: fisheye });
   }
 
   function updateOverlay(event: Event) {
     const input = event.target as HTMLInputElement;
     overlay = parseFloat(input.value);
     setUniforms({ u_overlay: overlay });
+  }
+
+  function updateAnimated(event: Event) {
+    const input = event.target as HTMLInputElement;
+    animated = input.checked;
+    setAnimationEnabled(animated);
+    if (!animated) {
+      // When disabling, set current base values
+      setUniforms({ u_pitch: pitch, u_zoom: zoom, u_fisheye: fisheye });
+    }
   }
 
   function updateColor(colorNum: number, event: Event) {
@@ -144,9 +166,21 @@
 
     {#if selectedShader === "retrogrid"}
       <div class="shader-settings">
+        <div class="field checkbox-field">
+          <label for="animated">
+            <input
+              type="checkbox"
+              id="animated"
+              checked={animated}
+              onchange={updateAnimated}
+            />
+            Animated
+          </label>
+        </div>
+
         <div class="field">
           <label for="pitch">
-            Camera Pitch
+            Camera Pitch {animated ? "(base)" : ""}
             <span class="value">{pitch.toFixed(0)}°</span>
           </label>
           <input
@@ -178,7 +212,7 @@
 
         <div class="field">
           <label for="zoom">
-            Zoom
+            Zoom {animated ? "(base)" : ""}
             <span class="value">{zoom.toFixed(2)}</span>
           </label>
           <input
@@ -194,7 +228,7 @@
 
         <div class="field">
           <label for="fisheye">
-            Fisheye
+            Fisheye {animated ? "(base)" : ""}
             <span class="value">{fisheye.toFixed(2)}</span>
           </label>
           <input
@@ -313,6 +347,20 @@
     margin-top: 1.5rem;
     padding-top: 1rem;
     border-top: 1px solid rgba(var(--color-3), 0.5);
+  }
+
+  .checkbox-field label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+  }
+
+  input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: rgb(var(--color-1));
+    cursor: pointer;
   }
 
   label {
