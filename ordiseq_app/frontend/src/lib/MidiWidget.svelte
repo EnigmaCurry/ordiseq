@@ -138,12 +138,18 @@
     align-items: center;
     justify-content: center;
     width: 72px;
+    min-width: 72px;
+    max-width: 72px;
+    padding: 0;
+    margin: 0;
     background-color: #50fa7b;
     border: none;
+    border-radius: 0;
     cursor: pointer;
     color: #282a36;
     transition: all 0.2s ease;
     flex-shrink: 0;
+    flex-grow: 0;
   }
 
   .play-button:hover {
