@@ -25,6 +25,9 @@ pkgs.mkShell {
     bzip2
     zlib
 
+    # Graphics libraries
+    mesa
+
     # Node.js for frontend
     nodejs_22
   ];
@@ -43,10 +46,13 @@ pkgs.mkShell {
       pkgs.webkitgtk_4_1
       pkgs.libsoup_3
       pkgs.alsa-lib
+      pkgs.mesa
     ]}:$LD_LIBRARY_PATH"
 
     # WebKitGTK workarounds for EGL issues
     export WEBKIT_DISABLE_DMABUF_RENDERER=1
+    export WEBKIT_DISABLE_COMPOSITING_MODE=1
+    export LIBGL_ALWAYS_SOFTWARE=1
 
     echo "ordiseq_app dev shell"
     echo "Run: cargo tauri dev"
