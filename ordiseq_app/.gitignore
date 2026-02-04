@@ -1,11 +1,9 @@
 # Node modules
 node_modules/
-package-lock.json
 
 # Frontend build artifacts
 frontend/node_modules/
 frontend/dist/
-frontend/package-lock.json
 
 # Tauri generated files
 gen/
