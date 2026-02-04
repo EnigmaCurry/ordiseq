@@ -16,18 +16,21 @@ void main() {
   // Horizon position from pitch
   float horizon = clamp(u_pitch, 0.1, 0.9);
 
+  // Shift vanishing point based on direction (camera points where it travels)
+  float vanishX = 0.5 - u_direction * 0.3;
+
   if (uv.y < horizon) {
-    // Ground plane with perspective - vanishing point at horizon
+    // Ground plane with perspective - vanishing point shifts with direction
     float depth = (horizon - uv.y) / horizon;
     float z = 1.0 / (depth + 0.0001);
 
-    // Camera movement - direction affects both X and Z motion
+    // Camera movement - travel in the direction we're pointing
     float timeOffset = u_time * u_speed;
-    float zOffset = timeOffset * (1.0 - abs(u_direction) * 0.3);
-    float xOffset = timeOffset * u_direction;
+    float zOffset = timeOffset;
+    float xOffset = timeOffset * u_direction * 2.0;
 
-    // Perspective-correct X coordinate
-    float x = (uv.x - 0.5) * z * 2.5 + xOffset;
+    // Perspective-correct X coordinate relative to shifted vanishing point
+    float x = (uv.x - vanishX) * z * 2.5 + xOffset;
 
     // Grid with constant line width
     float gridSize = 0.5;
