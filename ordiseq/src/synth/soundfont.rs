@@ -61,12 +61,20 @@ impl SoundFontSource {
     /// Search for a soundfont in common system locations.
     ///
     /// This searches:
-    /// 1. `~/soundfonts` (if home directory exists)
-    /// 2. Common system directories (see [`SEARCH_DIRS`])
+    /// 1. `SOUNDFONT_PATH` environment variable (if set, loads directly from path)
+    /// 2. `~/soundfonts` (if home directory exists)
+    /// 3. Common system directories (see [`SEARCH_DIRS`])
     ///
     /// Within each directory, it first looks for preferred soundfonts
     /// (see [`PREFERRED_SOUNDFONTS`]), then falls back to any `.sf2` or `.sf3` file.
     pub fn default_search() -> Result<Self, SynthError> {
+        // Check environment variable first
+        if let Ok(path) = std::env::var("SOUNDFONT_PATH") {
+            let path = PathBuf::from(path);
+            if path.exists() {
+                return Self::from_path(path);
+            }
+        }
         Self::search(&Self::default_search_dirs())
     }
 
