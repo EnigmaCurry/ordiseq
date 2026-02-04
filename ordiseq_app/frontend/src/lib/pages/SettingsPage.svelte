@@ -14,7 +14,7 @@
   // Retrogrid settings
   let pitch = $state(285.0);
   let speed = $state(0.02);
-  let zoom = $state(2.0);
+  let zoom = $state(4.0);
   let fisheye = $state(1.0);
   let color1 = $state("#ff1493");
   let color2 = $state("#00ffde");
@@ -176,7 +176,7 @@
             type="range"
             id="zoom"
             min="0.5"
-            max="4.0"
+            max="32"
             step="0.01"
             value={zoom}
             oninput={updateZoom}

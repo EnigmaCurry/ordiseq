@@ -15,7 +15,7 @@ const defaultConfig: ShaderConfig = {
   uniforms: {
     u_pitch: 285.0,
     u_speed: 0.02,
-    u_zoom: 2.0,
+    u_zoom: 4.0,
     u_fisheye: 1.0,
     u_color1: [1.0, 0.08, 0.58],   // Hot pink
     u_color2: [0.0, 1.0, 0.87],    // Cyan
