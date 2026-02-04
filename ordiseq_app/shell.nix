@@ -45,6 +45,9 @@ pkgs.mkShell {
       pkgs.alsa-lib
     ]}:$LD_LIBRARY_PATH"
 
+    # WebKitGTK workarounds for EGL issues
+    export WEBKIT_DISABLE_DMABUF_RENDERER=1
+
     echo "ordiseq_app dev shell"
     echo "Run: cargo tauri dev"
   '';
