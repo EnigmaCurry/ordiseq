@@ -16,12 +16,14 @@
   }
 </script>
 
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="midi-widget"
   role="button"
   tabindex="0"
-  onmousedown={handleMouseDown}
-  ondragstart={(e) => e.preventDefault()}
+  on:mousedown={handleMouseDown}
+  on:click={() => console.log("clicked!")}
+  on:dragstart|preventDefault
 >
   <div class="icon">
     <svg
