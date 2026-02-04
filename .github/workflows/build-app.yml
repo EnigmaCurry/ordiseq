@@ -36,11 +36,21 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: 'npm'
+          cache-dependency-path: |
+            ordiseq_app/package-lock.json
+            ordiseq_app/frontend/package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@nightly
         with:
           targets: ${{ matrix.target }}
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          shared-key: ${{ matrix.target }}
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
