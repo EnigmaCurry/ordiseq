@@ -16,6 +16,7 @@
     "vite": "^6.0.0"
   },
   "dependencies": {
-    "@crabnebula/tauri-plugin-drag": "^2.0.0"
+    "@crabnebula/tauri-plugin-drag": "^2.0.0",
+    "@tauri-apps/api": "^2"
   }
 }

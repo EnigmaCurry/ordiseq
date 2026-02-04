@@ -1,8 +1,7 @@
 <script lang="ts">
+  import { invoke } from "@tauri-apps/api/core";
   import MidiWidget from "./lib/MidiWidget.svelte";
   import type { MidiInfo, GenerateMidiParams } from "./lib/types";
-
-  const { invoke } = window.__TAURI__.core;
 
   let selectedSequence = $state("c_major_scale");
   let midiInfo: MidiInfo | null = $state(null);
