@@ -61,6 +61,14 @@ build-app:
 bundle-app:
     cd ordiseq_app && npm run tauri build
 
+# Bundle ordiseq_app for Windows (cross-compile from Linux)
+bundle-app-windows:
+    @if ! command -v cargo-xwin >/dev/null; then cargo install cargo-xwin; fi
+    @if ! rustup target list --installed | grep -q x86_64-pc-windows-msvc; then rustup target add x86_64-pc-windows-msvc; fi
+    cd ordiseq_app/frontend && npm run build
+    cd ordiseq_app && cargo xwin build --release --target x86_64-pc-windows-msvc
+    @echo "Windows binary: target/x86_64-pc-windows-msvc/release/ordiseq_app.exe"
+
 # Run tests
 test *args: 
     cargo nextest run {{args}}

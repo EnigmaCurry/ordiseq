@@ -30,6 +30,10 @@ pkgs.mkShell {
 
     # Node.js for frontend
     nodejs_22
+
+    # Windows cross-compilation
+    llvmPackages.clang
+    llvmPackages.lld
   ];
 
   shellHook = ''
