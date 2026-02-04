@@ -4,11 +4,15 @@
 
   let { midiInfo }: { midiInfo: MidiInfo } = $props();
 
-  function handleMouseDown(event: MouseEvent) {
+  async function handleMouseDown(event: MouseEvent) {
     event.preventDefault();
-    startDrag({ item: [midiInfo.path] }).catch((err) => {
+    console.log("Starting drag with path:", midiInfo.path);
+    try {
+      const result = await startDrag({ item: [midiInfo.path] });
+      console.log("Drag result:", result);
+    } catch (err) {
       console.error("Drag failed:", err);
-    });
+    }
   }
 </script>
 
