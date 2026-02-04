@@ -4,6 +4,7 @@ import plasmaShader from "./shaders/plasma.frag.glsl?raw";
 import wavesShader from "./shaders/waves.frag.glsl?raw";
 import noiseShader from "./shaders/noise.frag.glsl?raw";
 import retrogridShader from "./shaders/retrogrid.frag.glsl?raw";
+import { loadShaderSettings, saveShaderSettings, type ShaderSettings } from "./settingsStore";
 
 export interface ShaderConfig {
   fragmentShader: string;
@@ -16,6 +17,15 @@ export interface AnimationConfig {
   baseZoom: number;
   baseFisheye: number;
 }
+
+// Example shaders loaded from .glsl files
+export const exampleShaders: Record<string, string> = {
+  default: defaultFragmentShader,
+  plasma: plasmaShader,
+  waves: wavesShader,
+  noise: noiseShader,
+  retrogrid: retrogridShader,
+};
 
 const defaultConfig: ShaderConfig = {
   fragmentShader: retrogridShader,
@@ -33,6 +43,7 @@ const defaultConfig: ShaderConfig = {
 };
 
 export const shaderConfig = writable<ShaderConfig>(defaultConfig);
+export const settingsLoaded = writable<boolean>(false);
 
 /**
  * Set a new fragment shader. Must be a valid GLSL ES 3.0 shader.
@@ -61,15 +72,6 @@ export function setUniforms(uniforms: Record<string, number | number[]>): void {
 export function resetShader(): void {
   shaderConfig.set(defaultConfig);
 }
-
-// Example shaders loaded from .glsl files
-export const exampleShaders = {
-  default: defaultFragmentShader,
-  plasma: plasmaShader,
-  waves: wavesShader,
-  noise: noiseShader,
-  retrogrid: retrogridShader,
-};
 
 // Animation state
 export const animationConfig = writable<AnimationConfig>({
@@ -155,3 +157,94 @@ export function setAnimationBase(pitch: number, zoom: number, fisheye: number) {
 
 // Start animation by default
 startAnimation();
+
+// Helper functions for color conversion
+function hexToRgb(hex: string): number[] {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result
+    ? [
+        parseInt(result[1], 16) / 255,
+        parseInt(result[2], 16) / 255,
+        parseInt(result[3], 16) / 255,
+      ]
+    : [1, 1, 1];
+}
+
+function rgbToHex(rgb: number[]): string {
+  const r = Math.round(rgb[0] * 255).toString(16).padStart(2, "0");
+  const g = Math.round(rgb[1] * 255).toString(16).padStart(2, "0");
+  const b = Math.round(rgb[2] * 255).toString(16).padStart(2, "0");
+  return `#${r}${g}${b}`;
+}
+
+// Track which shader is currently selected by name
+export const selectedShaderName = writable<string>("retrogrid");
+
+/**
+ * Initialize settings from persistent storage
+ */
+export async function initializeSettings(): Promise<void> {
+  try {
+    const settings = await loadShaderSettings();
+
+    // Apply shader
+    const shader = exampleShaders[settings.selectedShader] || retrogridShader;
+    selectedShaderName.set(settings.selectedShader);
+
+    // Apply uniforms with color conversion
+    shaderConfig.set({
+      fragmentShader: shader,
+      uniforms: {
+        u_pitch: settings.uniforms.pitch,
+        u_speed: settings.uniforms.speed,
+        u_zoom: settings.uniforms.zoom,
+        u_fisheye: settings.uniforms.fisheye,
+        u_overlay: settings.uniforms.overlay,
+        u_color1: hexToRgb(settings.uniforms.color1),
+        u_color2: hexToRgb(settings.uniforms.color2),
+        u_color3: hexToRgb(settings.uniforms.color3),
+        u_color4: hexToRgb(settings.uniforms.color4),
+      },
+    });
+
+    // Apply animation config
+    animationConfig.set({
+      enabled: settings.animationEnabled,
+      basePitch: settings.uniforms.pitch,
+      baseZoom: settings.uniforms.zoom,
+      baseFisheye: settings.uniforms.fisheye,
+    });
+
+    settingsLoaded.set(true);
+  } catch (e) {
+    console.warn("Failed to initialize settings:", e);
+    settingsLoaded.set(true);
+  }
+}
+
+/**
+ * Save current settings to persistent storage
+ */
+export async function persistSettings(): Promise<void> {
+  const config = get(shaderConfig);
+  const anim = get(animationConfig);
+  const shaderName = get(selectedShaderName);
+
+  const settings: ShaderSettings = {
+    selectedShader: shaderName,
+    uniforms: {
+      pitch: anim.basePitch,
+      speed: config.uniforms.u_speed as number,
+      zoom: anim.baseZoom,
+      fisheye: anim.baseFisheye,
+      overlay: config.uniforms.u_overlay as number,
+      color1: rgbToHex(config.uniforms.u_color1 as number[]),
+      color2: rgbToHex(config.uniforms.u_color2 as number[]),
+      color3: rgbToHex(config.uniforms.u_color3 as number[]),
+      color4: rgbToHex(config.uniforms.u_color4 as number[]),
+    },
+    animationEnabled: anim.enabled,
+  };
+
+  await saveShaderSettings(settings);
+}

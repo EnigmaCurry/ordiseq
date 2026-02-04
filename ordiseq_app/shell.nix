@@ -22,6 +22,7 @@ pkgs.mkShell {
     webkitgtk_4_1
     gtk3
     glib
+    glib.dev
     cairo
     pango
     gdk-pixbuf

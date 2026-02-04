@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { setShader, setUniforms, exampleShaders, shaderConfig, animationConfig, setAnimationEnabled, setAnimationBase } from "../shaderStore";
+  import { setShader, setUniforms, exampleShaders, shaderConfig, animationConfig, setAnimationEnabled, setAnimationBase, persistSettings, selectedShaderName } from "../shaderStore";
 
   const shaderOptions = [
     { value: "retrogrid", label: "Retro Grid" },
@@ -79,6 +79,7 @@
     const select = event.target as HTMLSelectElement;
     const key = select.value as keyof typeof exampleShaders;
     selectedShader = key;
+    selectedShaderName.set(key);
     setShader(exampleShaders[key]);
 
     // Set default uniforms for retrogrid
@@ -95,6 +96,7 @@
         u_color4: hexToRgb(color4),
       });
     }
+    persistSettings();
   }
 
   function updatePitch(event: Event) {
@@ -102,12 +104,14 @@
     basePitch = parseFloat(input.value);
     setAnimationBase(basePitch, baseZoom, baseFisheye);
     if (!animated) setUniforms({ u_pitch: basePitch });
+    persistSettings();
   }
 
   function updateSpeed(event: Event) {
     const input = event.target as HTMLInputElement;
     speed = parseFloat(input.value);
     setUniforms({ u_speed: speed });
+    persistSettings();
   }
 
   function updateZoom(event: Event) {
@@ -115,6 +119,7 @@
     baseZoom = parseFloat(input.value);
     setAnimationBase(basePitch, baseZoom, baseFisheye);
     if (!animated) setUniforms({ u_zoom: baseZoom });
+    persistSettings();
   }
 
   function updateFisheye(event: Event) {
@@ -122,12 +127,14 @@
     baseFisheye = parseFloat(input.value);
     setAnimationBase(basePitch, baseZoom, baseFisheye);
     if (!animated) setUniforms({ u_fisheye: baseFisheye });
+    persistSettings();
   }
 
   function updateOverlay(event: Event) {
     const input = event.target as HTMLInputElement;
     overlay = parseFloat(input.value);
     setUniforms({ u_overlay: overlay });
+    persistSettings();
   }
 
   function updateAnimated(event: Event) {
@@ -138,6 +145,7 @@
       // When disabling, set current base values
       setUniforms({ u_pitch: basePitch, u_zoom: baseZoom, u_fisheye: baseFisheye });
     }
+    persistSettings();
   }
 
   function updateColor(colorNum: number, event: Event) {
@@ -148,6 +156,7 @@
     else if (colorNum === 2) { color2 = hex; setUniforms({ u_color2: rgb }); }
     else if (colorNum === 3) { color3 = hex; setUniforms({ u_color3: rgb }); }
     else { color4 = hex; setUniforms({ u_color4: rgb }); }
+    persistSettings();
   }
 </script>
 
