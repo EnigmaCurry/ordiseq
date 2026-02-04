@@ -73,8 +73,8 @@
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="currentColor"
-        width="24"
-        height="24"
+        width="40"
+        height="40"
       >
         <rect x="6" y="6" width="12" height="12" />
       </svg>
@@ -83,8 +83,8 @@
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="currentColor"
-        width="24"
-        height="24"
+        width="40"
+        height="40"
       >
         <path d="M8 5v14l11-7z" />
       </svg>
@@ -136,7 +136,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 56px;
+    width: 72px;
     background-color: #50fa7b;
     border: none;
     cursor: pointer;
