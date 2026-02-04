@@ -9,7 +9,10 @@
     event.preventDefault();
     debugMsg = "Dragging: " + midiInfo.path;
     try {
-      const result = await startDrag({ item: [midiInfo.path] });
+      const result = await startDrag({
+        item: [midiInfo.path],
+        image: "icons/32x32.png",
+      });
       debugMsg = "Drag complete: " + JSON.stringify(result);
     } catch (err) {
       debugMsg = "Drag error: " + String(err);
