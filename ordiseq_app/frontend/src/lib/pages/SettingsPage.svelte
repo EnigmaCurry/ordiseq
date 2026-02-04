@@ -11,7 +11,7 @@
 
   let selectedShader = $state("retrogrid");
 
-  // Retrogrid settings
+  // Retrogrid settings - display values (animated)
   let pitch = $state(0.0);
   let speed = $state(0.02);
   let zoom = $state(12.0);
@@ -22,6 +22,11 @@
   let color2 = $state("#00ffde");
   let color3 = $state("#bd93f9");
   let color4 = $state("#50fa7b");
+
+  // Base values for sliders when animated
+  let basePitch = $state(0.0);
+  let baseZoom = $state(12.0);
+  let baseFisheye = $state(0.04);
 
   // Convert hex to RGB array (0-1 range)
   function hexToRgb(hex: string): number[] {
@@ -53,19 +58,17 @@
         break;
       }
     }
-    // Sync retrogrid uniforms - use base values when animated
-    if (anim.enabled) {
-      pitch = anim.basePitch;
-      zoom = anim.baseZoom;
-      fisheye = anim.baseFisheye;
-    } else {
-      if (config.uniforms.u_pitch !== undefined) pitch = config.uniforms.u_pitch as number;
-      if (config.uniforms.u_zoom !== undefined) zoom = config.uniforms.u_zoom as number;
-      if (config.uniforms.u_fisheye !== undefined) fisheye = config.uniforms.u_fisheye as number;
-    }
+    // Always show actual uniform values (animated or not)
+    if (config.uniforms.u_pitch !== undefined) pitch = config.uniforms.u_pitch as number;
+    if (config.uniforms.u_zoom !== undefined) zoom = config.uniforms.u_zoom as number;
+    if (config.uniforms.u_fisheye !== undefined) fisheye = config.uniforms.u_fisheye as number;
     if (config.uniforms.u_speed !== undefined) speed = config.uniforms.u_speed as number;
     if (config.uniforms.u_overlay !== undefined) overlay = config.uniforms.u_overlay as number;
     animated = anim.enabled;
+    // Sync base values for sliders
+    basePitch = anim.basePitch;
+    baseZoom = anim.baseZoom;
+    baseFisheye = anim.baseFisheye;
     if (config.uniforms.u_color1 !== undefined) color1 = rgbToHex(config.uniforms.u_color1 as number[]);
     if (config.uniforms.u_color2 !== undefined) color2 = rgbToHex(config.uniforms.u_color2 as number[]);
     if (config.uniforms.u_color3 !== undefined) color3 = rgbToHex(config.uniforms.u_color3 as number[]);
@@ -96,9 +99,9 @@
 
   function updatePitch(event: Event) {
     const input = event.target as HTMLInputElement;
-    pitch = parseFloat(input.value);
-    setAnimationBase(pitch, zoom, fisheye);
-    if (!animated) setUniforms({ u_pitch: pitch });
+    basePitch = parseFloat(input.value);
+    setAnimationBase(basePitch, baseZoom, baseFisheye);
+    if (!animated) setUniforms({ u_pitch: basePitch });
   }
 
   function updateSpeed(event: Event) {
@@ -109,16 +112,16 @@
 
   function updateZoom(event: Event) {
     const input = event.target as HTMLInputElement;
-    zoom = parseFloat(input.value);
-    setAnimationBase(pitch, zoom, fisheye);
-    if (!animated) setUniforms({ u_zoom: zoom });
+    baseZoom = parseFloat(input.value);
+    setAnimationBase(basePitch, baseZoom, baseFisheye);
+    if (!animated) setUniforms({ u_zoom: baseZoom });
   }
 
   function updateFisheye(event: Event) {
     const input = event.target as HTMLInputElement;
-    fisheye = parseFloat(input.value);
-    setAnimationBase(pitch, zoom, fisheye);
-    if (!animated) setUniforms({ u_fisheye: fisheye });
+    baseFisheye = parseFloat(input.value);
+    setAnimationBase(basePitch, baseZoom, baseFisheye);
+    if (!animated) setUniforms({ u_fisheye: baseFisheye });
   }
 
   function updateOverlay(event: Event) {
@@ -133,7 +136,7 @@
     setAnimationEnabled(animated);
     if (!animated) {
       // When disabling, set current base values
-      setUniforms({ u_pitch: pitch, u_zoom: zoom, u_fisheye: fisheye });
+      setUniforms({ u_pitch: basePitch, u_zoom: baseZoom, u_fisheye: baseFisheye });
     }
   }
 
@@ -189,7 +192,7 @@
             min="0"
             max="360"
             step="1"
-            value={pitch}
+            value={animated ? basePitch : pitch}
             oninput={updatePitch}
           />
         </div>
@@ -221,7 +224,7 @@
             min="0.5"
             max="32"
             step="0.01"
-            value={zoom}
+            value={animated ? baseZoom : zoom}
             oninput={updateZoom}
           />
         </div>
@@ -237,7 +240,7 @@
             min="0"
             max="1"
             step="0.01"
-            value={fisheye}
+            value={animated ? baseFisheye : fisheye}
             oninput={updateFisheye}
           />
         </div>
