@@ -11,7 +11,7 @@
     try {
       const result = await startDrag({
         item: [midiInfo.path],
-        image: "icons/32x32.png",
+        icon: "/icons/32x32.png",
       });
       debugMsg = "Drag complete: " + JSON.stringify(result);
     } catch (err) {
