@@ -4,6 +4,7 @@
   let menuOpen = $state(false);
 
   const pages: { id: Page; label: string }[] = [
+    { id: "main", label: "Main" },
     { id: "settings", label: "Settings" },
     { id: "test", label: "Test" },
   ];

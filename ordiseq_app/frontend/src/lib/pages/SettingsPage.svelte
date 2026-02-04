@@ -16,7 +16,7 @@
   let speed = $state(0.02);
   let zoom = $state(12.0);
   let fisheye = $state(0.04);
-  let overlay = $state(0.4);
+  let overlay = $state(0.9);
   let animated = $state(true);
   let color1 = $state("#ff1493");
   let color2 = $state("#00ffde");
