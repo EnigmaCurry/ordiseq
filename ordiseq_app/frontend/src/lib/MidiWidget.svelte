@@ -3,27 +3,25 @@
   import { startDrag } from "@crabnebula/tauri-plugin-drag";
 
   let { midiInfo }: { midiInfo: MidiInfo } = $props();
+  let debugMsg = $state("");
 
   async function handleMouseDown(event: MouseEvent) {
     event.preventDefault();
-    console.log("Starting drag with path:", midiInfo.path);
+    debugMsg = "Dragging: " + midiInfo.path;
     try {
       const result = await startDrag({ item: [midiInfo.path] });
-      console.log("Drag result:", result);
+      debugMsg = "Drag complete: " + JSON.stringify(result);
     } catch (err) {
-      console.error("Drag failed:", err);
+      debugMsg = "Drag error: " + String(err);
     }
   }
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="midi-widget"
   role="button"
   tabindex="0"
-  on:mousedown={handleMouseDown}
-  on:click={() => console.log("clicked!")}
-  on:dragstart|preventDefault
+  onmousedown={handleMouseDown}
 >
   <div class="icon">
     <svg
@@ -42,6 +40,9 @@
     <div class="title">{midiInfo.title}</div>
     <div class="details">{midiInfo.note_count} notes</div>
     <div class="hint">Drag to export</div>
+    {#if debugMsg}
+      <div class="debug">{debugMsg}</div>
+    {/if}
   </div>
 </div>
 
@@ -98,5 +99,12 @@
     font-size: 0.75rem;
     color: #6272a4;
     margin-top: 0.25rem;
+  }
+
+  .debug {
+    font-size: 0.7rem;
+    color: #50fa7b;
+    margin-top: 0.5rem;
+    word-break: break-all;
   }
 </style>
