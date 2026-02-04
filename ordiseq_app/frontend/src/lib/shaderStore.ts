@@ -17,6 +17,7 @@ const defaultConfig: ShaderConfig = {
     u_speed: 0.02,
     u_zoom: 12.0,
     u_fisheye: 0.04,
+    u_overlay: 0.4,
     u_color1: [1.0, 0.08, 0.58],   // Hot pink
     u_color2: [0.0, 1.0, 0.87],    // Cyan
     u_color3: [0.74, 0.58, 0.98],  // Purple

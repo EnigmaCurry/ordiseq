@@ -20,6 +20,7 @@ export const themeColors = derived(shaderConfig, ($config) => {
   const color2 = ($config.uniforms.u_color2 as number[]) || [0, 1, 0.87];
   const color3 = ($config.uniforms.u_color3 as number[]) || [0.74, 0.58, 0.98];
   const color4 = ($config.uniforms.u_color4 as number[]) || [0.31, 0.98, 0.48];
+  const overlay = ($config.uniforms.u_overlay as number) ?? 0.4;
 
   return {
     color1: rgbToCss(color1),
@@ -30,6 +31,7 @@ export const themeColors = derived(shaderConfig, ($config) => {
     color2Hex: rgbToHex(color2),
     color3Hex: rgbToHex(color3),
     color4Hex: rgbToHex(color4),
+    overlay,
   };
 });
 
@@ -38,10 +40,12 @@ export function applyTheme(colors: {
   color2: string;
   color3: string;
   color4: string;
+  overlay: number;
 }) {
   const root = document.documentElement;
   root.style.setProperty("--color-1", colors.color1);
   root.style.setProperty("--color-2", colors.color2);
   root.style.setProperty("--color-3", colors.color3);
   root.style.setProperty("--color-4", colors.color4);
+  root.style.setProperty("--overlay-opacity", colors.overlay.toString());
 }
