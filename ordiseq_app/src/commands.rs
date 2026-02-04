@@ -1,8 +1,12 @@
 use ordiseq::prelude::*;
+use ordiseq::synth::{Player, SoundFontSource};
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 static TEMP_FILES: Mutex<Vec<tempfile::NamedTempFile>> = Mutex::new(Vec::new());
+static STOP_FLAG: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
+static PLAYBACK_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Deserialize)]
 pub struct GenerateMidiParams {
@@ -98,4 +102,72 @@ fn build_simple_melody() -> (String, Vec<(NoteOrRest, u32, f32, f32)>) {
         .collect();
 
     (title, notes)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PlayMidiParams {
+    pub midi_path: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PlaybackStatus {
+    pub playing: bool,
+}
+
+#[tauri::command]
+pub fn play_midi(params: PlayMidiParams) -> Result<(), String> {
+    // Check if already playing
+    if PLAYBACK_ACTIVE.load(Ordering::SeqCst) {
+        return Err("Playback already in progress".to_string());
+    }
+
+    // Read the MIDI file
+    let midi_data =
+        std::fs::read(&params.midi_path).map_err(|e| format!("Failed to read MIDI file: {}", e))?;
+
+    // Find a soundfont
+    let soundfont = SoundFontSource::default_search().map_err(|e| format!("No soundfont found: {:?}", e))?;
+
+    // Create stop flag
+    let stop_flag = Arc::new(AtomicBool::new(false));
+    *STOP_FLAG.lock().unwrap() = Some(Arc::clone(&stop_flag));
+
+    // Set playback active
+    PLAYBACK_ACTIVE.store(true, Ordering::SeqCst);
+
+    // Spawn playback in a separate thread
+    std::thread::spawn(move || {
+        let result = (|| -> Result<(), String> {
+            let player = Player::new(soundfont).map_err(|e| format!("Failed to create player: {:?}", e))?;
+            player
+                .play_midi_bytes_stoppable(&midi_data, &stop_flag)
+                .map_err(|e| format!("Playback error: {:?}", e))?;
+            Ok(())
+        })();
+
+        // Clear playback state
+        PLAYBACK_ACTIVE.store(false, Ordering::SeqCst);
+        *STOP_FLAG.lock().unwrap() = None;
+
+        if let Err(e) = result {
+            eprintln!("Playback error: {}", e);
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn stop_midi() -> Result<(), String> {
+    if let Some(stop_flag) = STOP_FLAG.lock().unwrap().as_ref() {
+        stop_flag.store(true, Ordering::SeqCst);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_playback_status() -> PlaybackStatus {
+    PlaybackStatus {
+        playing: PLAYBACK_ACTIVE.load(Ordering::SeqCst),
+    }
 }

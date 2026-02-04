@@ -5,12 +5,17 @@
 
 mod commands;
 
-use commands::generate_midi;
+use commands::{generate_midi, get_playback_status, play_midi, stop_midi};
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_drag::init())
-        .invoke_handler(tauri::generate_handler![generate_midi])
+        .invoke_handler(tauri::generate_handler![
+            generate_midi,
+            play_midi,
+            stop_midi,
+            get_playback_status
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

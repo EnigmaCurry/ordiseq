@@ -2,9 +2,11 @@
   import type { MidiInfo } from "./types";
   import { startDrag } from "@crabnebula/tauri-plugin-drag";
   import { resolveResource } from "@tauri-apps/api/path";
+  import { invoke } from "@tauri-apps/api/core";
 
   let { midiInfo }: { midiInfo: MidiInfo } = $props();
   let error = $state("");
+  let isPlaying = $state(false);
 
   async function handleMouseDown(event: MouseEvent) {
     event.preventDefault();
@@ -19,60 +21,162 @@
       error = String(e);
     }
   }
+
+  async function handlePlay() {
+    error = "";
+    if (isPlaying) {
+      try {
+        await invoke("stop_midi");
+        isPlaying = false;
+      } catch (e) {
+        error = String(e);
+      }
+    } else {
+      try {
+        await invoke("play_midi", { params: { midi_path: midiInfo.path } });
+        isPlaying = true;
+        pollPlaybackStatus();
+      } catch (e) {
+        error = String(e);
+      }
+    }
+  }
+
+  async function pollPlaybackStatus() {
+    while (isPlaying) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      try {
+        const status = (await invoke("get_playback_status")) as {
+          playing: boolean;
+        };
+        if (!status.playing) {
+          isPlaying = false;
+          break;
+        }
+      } catch {
+        isPlaying = false;
+        break;
+      }
+    }
+  }
 </script>
 
-<div
-  class="midi-widget"
-  role="button"
-  tabindex="0"
-  onmousedown={handleMouseDown}
->
-  <div class="icon">
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      width="48"
-      height="48"
-    >
-      <path
-        d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"
-      />
-    </svg>
-  </div>
-  <div class="info">
-    <div class="title">{midiInfo.title}</div>
-    <div class="details">{midiInfo.note_count} notes</div>
-    <div class="hint">Drag to export</div>
-    {#if error}
-      <div class="error">{error}</div>
+<div class="midi-widget">
+  <button
+    class="play-button"
+    class:playing={isPlaying}
+    onclick={handlePlay}
+    title={isPlaying ? "Stop" : "Play"}
+  >
+    {#if isPlaying}
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        width="24"
+        height="24"
+      >
+        <rect x="6" y="6" width="12" height="12" />
+      </svg>
+    {:else}
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        width="24"
+        height="24"
+      >
+        <path d="M8 5v14l11-7z" />
+      </svg>
     {/if}
+  </button>
+
+  <div
+    class="drag-area"
+    role="button"
+    tabindex="0"
+    onmousedown={handleMouseDown}
+  >
+    <div class="icon">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        width="48"
+        height="48"
+      >
+        <path
+          d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"
+        />
+      </svg>
+    </div>
+    <div class="info">
+      <div class="title">{midiInfo.title}</div>
+      <div class="details">{midiInfo.note_count} notes</div>
+      <div class="hint">Drag to export</div>
+    </div>
   </div>
 </div>
+{#if error}
+  <div class="error">{error}</div>
+{/if}
 
 <style>
   .midi-widget {
     display: flex;
+    align-items: stretch;
+    gap: 0;
+    background-color: #44475a;
+    border: 2px solid #6272a4;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .play-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    background-color: #50fa7b;
+    border: none;
+    cursor: pointer;
+    color: #282a36;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+  }
+
+  .play-button:hover {
+    background-color: #5fff88;
+  }
+
+  .play-button.playing {
+    background-color: #ff5555;
+  }
+
+  .play-button.playing:hover {
+    background-color: #ff6666;
+  }
+
+  .drag-area {
+    display: flex;
     align-items: center;
     gap: 1rem;
     padding: 1rem;
-    background-color: #44475a;
-    border: 2px dashed #6272a4;
-    border-radius: 8px;
+    flex: 1;
     cursor: grab;
     -webkit-user-select: none;
     user-select: none;
     transition: all 0.2s ease;
+    border-left: 2px dashed #6272a4;
   }
 
-  .midi-widget:hover {
-    border-color: #ff79c6;
+  .drag-area:hover {
     background-color: #4d5066;
   }
 
-  .midi-widget:active {
+  .drag-area:active {
     cursor: grabbing;
-    border-color: #50fa7b;
+    background-color: #525570;
   }
 
   .icon {
@@ -108,6 +212,7 @@
   .error {
     font-size: 0.7rem;
     color: #ff5555;
-    margin-top: 0.25rem;
+    margin-top: 0.5rem;
+    padding: 0 0.5rem;
   }
 </style>
