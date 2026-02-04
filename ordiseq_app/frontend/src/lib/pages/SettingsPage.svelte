@@ -12,8 +12,9 @@
   let selectedShader = $state("retrogrid");
 
   // Retrogrid settings
-  let pitch = $state(0.20);
+  let pitch = $state(0.90);
   let speed = $state(0.16);
+  let zoom = $state(1.0);
 
   // Sync initial state with store
   $effect(() => {
@@ -27,6 +28,7 @@
     // Sync retrogrid uniforms
     if (config.uniforms.u_pitch !== undefined) pitch = config.uniforms.u_pitch as number;
     if (config.uniforms.u_speed !== undefined) speed = config.uniforms.u_speed as number;
+    if (config.uniforms.u_zoom !== undefined) zoom = config.uniforms.u_zoom as number;
   });
 
   function handleShaderChange(event: Event) {
@@ -37,7 +39,7 @@
 
     // Set default uniforms for retrogrid
     if (key === "retrogrid") {
-      setUniforms({ u_pitch: pitch, u_speed: speed });
+      setUniforms({ u_pitch: pitch, u_speed: speed, u_zoom: zoom });
     }
   }
 
@@ -51,6 +53,12 @@
     const input = event.target as HTMLInputElement;
     speed = parseFloat(input.value);
     setUniforms({ u_speed: speed });
+  }
+
+  function updateZoom(event: Event) {
+    const input = event.target as HTMLInputElement;
+    zoom = parseFloat(input.value);
+    setUniforms({ u_zoom: zoom });
   }
 </script>
 
@@ -101,6 +109,22 @@
             step="0.01"
             value={speed}
             oninput={updateSpeed}
+          />
+        </div>
+
+        <div class="field">
+          <label for="zoom">
+            Zoom
+            <span class="value">{zoom.toFixed(2)}</span>
+          </label>
+          <input
+            type="range"
+            id="zoom"
+            min="0.5"
+            max="2.0"
+            step="0.01"
+            value={zoom}
+            oninput={updateZoom}
           />
         </div>
       </div>

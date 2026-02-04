@@ -4,6 +4,7 @@ uniform float u_time;
 uniform vec2 u_resolution;
 uniform float u_pitch;  // 0.1 to 0.9 - camera pitch angle
 uniform float u_speed;  // 0.0 to 2.0 - movement speed
+uniform float u_zoom;   // 0.5 to 2.0 - zoom level (affects central area size)
 out vec4 fragColor;
 
 void main() {
@@ -14,12 +15,15 @@ void main() {
   float aspect = u_resolution.x / u_resolution.y;
   centered.x *= aspect;
 
+  // Apply zoom - smaller zoom = larger central area
+  centered *= u_zoom;
+
   // Hot pink color
   vec3 pink = vec3(1.0, 0.08, 0.58);
 
   // Fisheye projection - map screen to sphere
   float r = length(centered);
-  float maxR = 0.8;
+  float maxR = 0.8 * u_zoom;
 
   if (r < maxR) {
     // Fisheye distortion - bend the view onto a sphere
