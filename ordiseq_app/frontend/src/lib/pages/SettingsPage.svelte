@@ -14,7 +14,31 @@
   // Retrogrid settings
   let pitch = $state(0.90);
   let speed = $state(0.16);
-  let zoom = $state(1.0);
+  let zoom = $state(2.0);
+  let color1 = $state("#ff1493");
+  let color2 = $state("#00ffde");
+  let color3 = $state("#bd93f9");
+  let color4 = $state("#50fa7b");
+
+  // Convert hex to RGB array (0-1 range)
+  function hexToRgb(hex: string): number[] {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result
+      ? [
+          parseInt(result[1], 16) / 255,
+          parseInt(result[2], 16) / 255,
+          parseInt(result[3], 16) / 255,
+        ]
+      : [1, 1, 1];
+  }
+
+  // Convert RGB array (0-1 range) to hex
+  function rgbToHex(rgb: number[]): string {
+    const r = Math.round(rgb[0] * 255).toString(16).padStart(2, "0");
+    const g = Math.round(rgb[1] * 255).toString(16).padStart(2, "0");
+    const b = Math.round(rgb[2] * 255).toString(16).padStart(2, "0");
+    return `#${r}${g}${b}`;
+  }
 
   // Sync initial state with store
   $effect(() => {
@@ -29,6 +53,10 @@
     if (config.uniforms.u_pitch !== undefined) pitch = config.uniforms.u_pitch as number;
     if (config.uniforms.u_speed !== undefined) speed = config.uniforms.u_speed as number;
     if (config.uniforms.u_zoom !== undefined) zoom = config.uniforms.u_zoom as number;
+    if (config.uniforms.u_color1 !== undefined) color1 = rgbToHex(config.uniforms.u_color1 as number[]);
+    if (config.uniforms.u_color2 !== undefined) color2 = rgbToHex(config.uniforms.u_color2 as number[]);
+    if (config.uniforms.u_color3 !== undefined) color3 = rgbToHex(config.uniforms.u_color3 as number[]);
+    if (config.uniforms.u_color4 !== undefined) color4 = rgbToHex(config.uniforms.u_color4 as number[]);
   });
 
   function handleShaderChange(event: Event) {
@@ -39,7 +67,15 @@
 
     // Set default uniforms for retrogrid
     if (key === "retrogrid") {
-      setUniforms({ u_pitch: pitch, u_speed: speed, u_zoom: zoom });
+      setUniforms({
+        u_pitch: pitch,
+        u_speed: speed,
+        u_zoom: zoom,
+        u_color1: hexToRgb(color1),
+        u_color2: hexToRgb(color2),
+        u_color3: hexToRgb(color3),
+        u_color4: hexToRgb(color4),
+      });
     }
   }
 
@@ -59,6 +95,16 @@
     const input = event.target as HTMLInputElement;
     zoom = parseFloat(input.value);
     setUniforms({ u_zoom: zoom });
+  }
+
+  function updateColor(colorNum: number, event: Event) {
+    const input = event.target as HTMLInputElement;
+    const hex = input.value;
+    const rgb = hexToRgb(hex);
+    if (colorNum === 1) { color1 = hex; setUniforms({ u_color1: rgb }); }
+    else if (colorNum === 2) { color2 = hex; setUniforms({ u_color2: rgb }); }
+    else if (colorNum === 3) { color3 = hex; setUniforms({ u_color3: rgb }); }
+    else { color4 = hex; setUniforms({ u_color4: rgb }); }
   }
 </script>
 
@@ -126,6 +172,45 @@
             value={zoom}
             oninput={updateZoom}
           />
+        </div>
+
+        <div class="color-grid">
+          <div class="color-field">
+            <label for="color1">Color 1</label>
+            <input
+              type="color"
+              id="color1"
+              value={color1}
+              oninput={(e) => updateColor(1, e)}
+            />
+          </div>
+          <div class="color-field">
+            <label for="color2">Color 2</label>
+            <input
+              type="color"
+              id="color2"
+              value={color2}
+              oninput={(e) => updateColor(2, e)}
+            />
+          </div>
+          <div class="color-field">
+            <label for="color3">Color 3</label>
+            <input
+              type="color"
+              id="color3"
+              value={color3}
+              oninput={(e) => updateColor(3, e)}
+            />
+          </div>
+          <div class="color-field">
+            <label for="color4">Color 4</label>
+            <input
+              type="color"
+              id="color4"
+              value={color4}
+              oninput={(e) => updateColor(4, e)}
+            />
+          </div>
         </div>
       </div>
     {/if}
@@ -220,5 +305,46 @@
     border-radius: 50%;
     cursor: pointer;
     border: none;
+  }
+
+  .color-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+
+  .color-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .color-field label {
+    font-size: 0.9rem;
+  }
+
+  input[type="color"] {
+    width: 100%;
+    height: 40px;
+    border: 1px solid #6272a4;
+    border-radius: 6px;
+    cursor: pointer;
+    background: none;
+    padding: 2px;
+  }
+
+  input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+
+  input[type="color"]::-webkit-color-swatch {
+    border: none;
+    border-radius: 4px;
+  }
+
+  input[type="color"]::-moz-color-swatch {
+    border: none;
+    border-radius: 4px;
   }
 </style>

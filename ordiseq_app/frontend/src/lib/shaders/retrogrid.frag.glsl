@@ -5,6 +5,10 @@ uniform vec2 u_resolution;
 uniform float u_pitch;  // 0.1 to 0.9 - camera pitch angle
 uniform float u_speed;  // 0.0 to 2.0 - movement speed
 uniform float u_zoom;   // 0.5 to 2.0 - zoom level (affects central area size)
+uniform vec3 u_color1;  // Grid color 1
+uniform vec3 u_color2;  // Grid color 2
+uniform vec3 u_color3;  // Grid color 3
+uniform vec3 u_color4;  // Grid color 4
 out vec4 fragColor;
 
 void main() {
@@ -17,9 +21,6 @@ void main() {
 
   // Apply zoom - smaller zoom = larger central area
   centered *= u_zoom;
-
-  // Hot pink color
-  vec3 pink = vec3(1.0, 0.08, 0.58);
 
   // Fisheye projection - map screen to sphere
   float r = length(centered);
@@ -70,6 +71,18 @@ void main() {
       float vLine = smoothstep(lineWidth + xAA, lineWidth, xGrid) +
                     smoothstep(gridSize - lineWidth - xAA, gridSize - lineWidth, xGrid);
 
+      // Determine which cell we're in for color selection
+      float cellX = floor(x);
+      float cellZ = floor(z);
+      int colorIdx = int(mod(cellX + cellZ, 4.0));
+
+      // Select color based on cell position
+      vec3 lineColor;
+      if (colorIdx == 0) lineColor = u_color1;
+      else if (colorIdx == 1) lineColor = u_color2;
+      else if (colorIdx == 2) lineColor = u_color3;
+      else lineColor = u_color4;
+
       float grid = min(1.0, hLine + vLine);
 
       // Distance fade
@@ -77,7 +90,7 @@ void main() {
       float fade = 1.0 - smoothstep(5.0, 30.0, dist);
       grid *= fade;
 
-      fragColor = vec4(pink * grid, 1.0);
+      fragColor = vec4(lineColor * grid, 1.0);
     } else {
       // Sky
       fragColor = vec4(0.0, 0.0, 0.0, 1.0);
