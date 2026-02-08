@@ -51,8 +51,12 @@ build-melody-player *args:
 build-midi-inverter *args:
     cargo run --package xtask --release -- bundle midi_inverter_plug --release
 
+# Build and bundle the Ordiseq Euclid plugin
+build-ordiseq-euclid *args:
+    cargo run --package xtask --release -- bundle ordiseq_euclid_plug --release
+
 # Build and bundle all plugins
-build-plugins *args: build-melody-player build-midi-inverter
+build-plugins *args: build-melody-player build-midi-inverter build-ordiseq-euclid
     @echo "All plugins built and bundled!"
     @ls -lh target/bundled/
 
@@ -85,8 +89,10 @@ _package-plugins-only:
     echo "Copying plugins..."
     cp target/bundled/melody_player_plug.clap "${PACKAGE_DIR}/CLAP/"
     cp target/bundled/midi_inverter_plug.clap "${PACKAGE_DIR}/CLAP/"
+    cp target/bundled/ordiseq_euclid_plug.clap "${PACKAGE_DIR}/CLAP/"
     cp -r target/bundled/melody_player_plug.vst3 "${PACKAGE_DIR}/VST3/"
     cp -r target/bundled/midi_inverter_plug.vst3 "${PACKAGE_DIR}/VST3/"
+    cp -r target/bundled/ordiseq_euclid_plug.vst3 "${PACKAGE_DIR}/VST3/"
 
     # Copy documentation
     echo "Copying documentation..."
@@ -97,9 +103,10 @@ _package-plugins-only:
     {
         echo "ORDISEQ PLUGIN SUITE INSTALLATION INSTRUCTIONS"
         echo ""
-        echo "This package contains two plugins:"
+        echo "This package contains three plugins:"
         echo "- Melody Player: Plays Jingle Bells and Row Row Your Boat"
         echo "- MIDI Inverter: Inverts MIDI notes around a center point"
+        echo "- Ordiseq Euclid: Euclidean rhythm generator with Length, Hits, and Rotate controls"
         echo ""
         echo "INSTALLATION:"
         echo ""
