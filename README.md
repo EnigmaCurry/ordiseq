@@ -80,6 +80,13 @@ just run --example test
    a copy of [one of the nih-plug
    examples](https://github.com/robbert-vdh/nih-plug/blob/master/plugins/examples/midi_inverter/src/lib.rs).
 
+ * [ordiseq_topograph_plug](plugins/ordiseq_topograph_plug) is based
+   on the Mutable Instruments Grids algorithm by Emilie Gillet
+   ([eurorack](https://github.com/pichenettes/eurorack)) and uses the
+   VCV Rack Topograph port by Dale Johnson / Valley Audio
+   ([ValleyRackFree](https://github.com/ValleyAudio/ValleyRackFree))
+   as reference.
+
  * Many other libraries from the Rust ecosystem have been used as
    listed in each crate's Cargo.toml. Thank you to all the library
    authors and supporters.
