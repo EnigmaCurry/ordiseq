@@ -7,3 +7,7 @@ export interface MidiInfo {
 export interface GenerateMidiParams {
   sequence_type: string;
 }
+
+// Re-export shader types
+export type { ShaderConfig } from "./shaderStore";
+export { setShader, setUniforms, resetShader, exampleShaders } from "./shaderStore";

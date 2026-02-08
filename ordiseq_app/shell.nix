@@ -2,6 +2,17 @@
 # Enter with: nix-shell
 { pkgs ? import <nixpkgs> {} }:
 
+let
+  # Create an ALSA config that uses PipeWire
+  alsaConf = pkgs.writeText "asound.conf" ''
+    pcm.!default {
+      type pipewire
+    }
+    ctl.!default {
+      type pipewire
+    }
+  '';
+in
 pkgs.mkShell {
   buildInputs = with pkgs; [
     # Rust toolchain (use rustup from parent project)
@@ -11,6 +22,7 @@ pkgs.mkShell {
     webkitgtk_4_1
     gtk3
     glib
+    glib.dev
     cairo
     pango
     gdk-pixbuf
@@ -21,6 +33,9 @@ pkgs.mkShell {
     librsvg
     alsa-lib
 
+    # Audio (PipeWire integration)
+    pipewire
+
     # Libraries needed by cargo-tauri binary
     bzip2
     zlib
@@ -30,6 +45,9 @@ pkgs.mkShell {
 
     # Node.js for frontend
     nodejs_22
+
+    # Soundfonts
+    soundfont-fluid
 
     # Windows cross-compilation
     llvmPackages.clang
@@ -52,7 +70,15 @@ pkgs.mkShell {
       pkgs.libsoup_3
       pkgs.alsa-lib
       pkgs.mesa
+      pkgs.pipewire
     ]}:$LD_LIBRARY_PATH"
+
+    # Configure ALSA to use PipeWire
+    export ALSA_PLUGIN_DIR="${pkgs.pipewire}/lib/alsa-lib"
+    export ALSA_CONFIG_PATH="${alsaConf}"
+
+    # Set soundfont path for ordiseq synth
+    export SOUNDFONT_PATH="${pkgs.soundfont-fluid}/share/soundfonts/FluidR3_GM2-2.sf2"
 
     # WebKitGTK workarounds for EGL issues
     export WEBKIT_DISABLE_DMABUF_RENDERER=1
@@ -61,5 +87,6 @@ pkgs.mkShell {
 
     echo "ordiseq_app dev shell"
     echo "Run: cargo tauri dev"
+    echo "Soundfont: $SOUNDFONT_PATH"
   '';
 }

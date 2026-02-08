@@ -1,106 +1,53 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
-  import MidiWidget from "./lib/MidiWidget.svelte";
-  import type { MidiInfo, GenerateMidiParams } from "./lib/types";
+  import Navigation from "./lib/Navigation.svelte";
+  import MainPage from "./lib/pages/MainPage.svelte";
+  import TestPage from "./lib/pages/TestPage.svelte";
+  import SettingsPage from "./lib/pages/SettingsPage.svelte";
+  import { currentPage } from "./lib/router";
+  import { setUniforms, shaderConfig } from "./lib/shaderStore";
+  import { get } from "svelte/store";
 
-  let selectedSequence = $state("c_major_scale");
-  let midiInfo: MidiInfo | null = $state(null);
-  let isLoading = $state(false);
-  let error: string | null = $state(null);
+  // Store the user's overlay setting
+  let userOverlay = 0.9;
+  let previousPage: string | null = null;
 
-  const sequences = [
-    { value: "c_major_scale", label: "C Major Scale" },
-    { value: "simple_melody", label: "Simple Melody" },
-  ];
+  // Track page changes to toggle overlay (only react to page changes, not shader changes)
+  $effect(() => {
+    const page = $currentPage;
 
-  async function handleGenerate() {
-    isLoading = true;
-    error = null;
+    // Only act on actual page changes
+    if (page === previousPage) return;
 
-    try {
-      const params: GenerateMidiParams = {
-        sequence_type: selectedSequence,
-      };
-      midiInfo = await invoke<MidiInfo>("generate_midi", { params });
-    } catch (e) {
-      error = String(e);
-      midiInfo = null;
-    } finally {
-      isLoading = false;
+    if (page === "main") {
+      // Save current overlay and disable it (use get() to avoid reactive dependency)
+      const currentOverlay = get(shaderConfig).uniforms.u_overlay as number;
+      if (currentOverlay > 0) {
+        userOverlay = currentOverlay;
+      }
+      setUniforms({ u_overlay: 0 });
+    } else if (previousPage === "main") {
+      // Only restore when leaving main page
+      setUniforms({ u_overlay: userOverlay });
     }
-  }
+
+    previousPage = page;
+  });
 </script>
 
+<Navigation />
+
 <main>
-  <h1>Ordiseq</h1>
-  <p class="subtitle">MIDI Sequence Generator</p>
-
-  <div class="form">
-    <div class="field">
-      <label for="sequence">Select Sequence</label>
-      <select id="sequence" bind:value={selectedSequence}>
-        {#each sequences as seq}
-          <option value={seq.value}>{seq.label}</option>
-        {/each}
-      </select>
-    </div>
-
-    <button onclick={handleGenerate} disabled={isLoading}>
-      {isLoading ? "Generating..." : "Generate MIDI"}
-    </button>
-  </div>
-
-  {#if error}
-    <div class="error">{error}</div>
-  {/if}
-
-  {#if midiInfo}
-    <div class="result">
-      <MidiWidget {midiInfo} />
-    </div>
+  {#if $currentPage === "main"}
+    <MainPage />
+  {:else if $currentPage === "test"}
+    <TestPage />
+  {:else if $currentPage === "settings"}
+    <SettingsPage />
   {/if}
 </main>
 
 <style>
   main {
     text-align: center;
-  }
-
-  h1 {
-    font-size: 2.5rem;
-    color: #ff79c6;
-    margin-bottom: 0.25rem;
-  }
-
-  .subtitle {
-    color: #6272a4;
-    margin-bottom: 2rem;
-  }
-
-  .form {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    margin-bottom: 2rem;
-  }
-
-  .field {
-    text-align: left;
-  }
-
-  select {
-    width: 100%;
-  }
-
-  .error {
-    padding: 0.75rem;
-    background-color: #ff5555;
-    color: #f8f8f2;
-    border-radius: 6px;
-    margin-bottom: 1rem;
-  }
-
-  .result {
-    margin-top: 1.5rem;
   }
 </style>
