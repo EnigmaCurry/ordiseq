@@ -2,7 +2,7 @@
 resolver = "2"
 
 members = [
-    "ordiseq", "plugins/melody_player_plug", "plugins/midi_inverter_plug", "plugins/ordiseq_euclid_plug", "plugins/ordiseq_topograph_plug", "ordiseq_app", "scale_omnibus", "xtask"
+    "ordiseq", "plugins/melody_player_plug", "plugins/midi_inverter_plug", "plugins/ordiseq_euclid_plug", "plugins/ordiseq_topograph_plug", "plugins/ordiseq_step_plug", "ordiseq_app", "scale_omnibus", "xtask"
 ]
 
 # Note: This workspace contains mixed licensing

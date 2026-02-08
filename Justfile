@@ -53,6 +53,7 @@ build-plugins *args:
     just build-plugin midi_inverter_plug
     just build-plugin ordiseq_euclid_plug
     just build-plugin ordiseq_topograph_plug
+    just build-plugin ordiseq_step_plug
     @echo "All plugins built and bundled!"
     @ls -lh target/bundled/
 
@@ -87,10 +88,12 @@ _package-plugins-only:
     cp target/bundled/midi_inverter_plug.clap "${PACKAGE_DIR}/CLAP/"
     cp target/bundled/ordiseq_euclid_plug.clap "${PACKAGE_DIR}/CLAP/"
     cp target/bundled/ordiseq_topograph_plug.clap "${PACKAGE_DIR}/CLAP/"
+    cp target/bundled/ordiseq_step_plug.clap "${PACKAGE_DIR}/CLAP/"
     cp -r target/bundled/melody_player_plug.vst3 "${PACKAGE_DIR}/VST3/"
     cp -r target/bundled/midi_inverter_plug.vst3 "${PACKAGE_DIR}/VST3/"
     cp -r target/bundled/ordiseq_euclid_plug.vst3 "${PACKAGE_DIR}/VST3/"
     cp -r target/bundled/ordiseq_topograph_plug.vst3 "${PACKAGE_DIR}/VST3/"
+    cp -r target/bundled/ordiseq_step_plug.vst3 "${PACKAGE_DIR}/VST3/"
 
     # Copy documentation
     echo "Copying documentation..."
@@ -101,11 +104,12 @@ _package-plugins-only:
     {
         echo "ORDISEQ PLUGIN SUITE INSTALLATION INSTRUCTIONS"
         echo ""
-        echo "This package contains four plugins:"
+        echo "This package contains five plugins:"
         echo "- Melody Player: Plays Jingle Bells and Row Row Your Boat"
         echo "- MIDI Inverter: Inverts MIDI notes around a center point"
         echo "- Ordiseq Euclid: Euclidean rhythm generator with Length, Hits, and Rotate controls"
         echo "- Ordiseq Topograph: Topographic drum sequencer based on Mutable Instruments Grids"
+        echo "- Ordiseq Step: 4-track 16-step sequencer with interactive GUI"
         echo ""
         echo "INSTALLATION:"
         echo ""
