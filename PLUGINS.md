@@ -117,14 +117,10 @@ just build-plugins
 
 Or build individually:
 ```bash
-# Melody Player
-just build-melody-player
-
-# MIDI Inverter
-just build-midi-inverter
-
-# Ordiseq Euclid
-just build-ordiseq-euclid
+# Build any plugin by name
+just build-plugin melody_player_plug
+just build-plugin midi_inverter_plug
+just build-plugin ordiseq_euclid_plug
 ```
 
 Bundled plugins will be in `target/bundled/`:

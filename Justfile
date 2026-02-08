@@ -43,20 +43,15 @@ run *args:
 build *args:
     RUSTFLAGS="-D warnings" cargo build {{args}}
 
-# Build and bundle the Melody Player plugin
-build-melody-player *args:
-    cargo run --package xtask --release -- bundle melody_player_plug --release
-
-# Build and bundle the MIDI Inverter plugin
-build-midi-inverter *args:
-    cargo run --package xtask --release -- bundle midi_inverter_plug --release
-
-# Build and bundle the Ordiseq Euclid plugin
-build-ordiseq-euclid *args:
-    cargo run --package xtask --release -- bundle ordiseq_euclid_plug --release
+# Build and bundle a specific plugin
+build-plugin NAME *args:
+    cargo run --package xtask --release -- bundle {{NAME}} --release
 
 # Build and bundle all plugins
-build-plugins *args: build-melody-player build-midi-inverter build-ordiseq-euclid
+build-plugins *args:
+    just build-plugin melody_player_plug
+    just build-plugin midi_inverter_plug
+    just build-plugin ordiseq_euclid_plug
     @echo "All plugins built and bundled!"
     @ls -lh target/bundled/
 
