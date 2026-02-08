@@ -43,8 +43,108 @@ run *args:
 build *args:
     RUSTFLAGS="-D warnings" cargo build {{args}}
 
-build-plugin *args:
-    cd ordiseq-plug && cargo xtask bundle ordiseq-plug --release
+# Build and bundle the Melody Player plugin
+build-melody-player *args:
+    cargo run --package xtask --release -- bundle ordiseq_plug --release
+
+# Build and bundle the MIDI Inverter plugin
+build-midi-inverter *args:
+    cargo run --package xtask --release -- bundle midi_inverter_plug --release
+
+# Build and bundle all plugins
+build-plugins *args: build-melody-player build-midi-inverter
+    @echo "All plugins built and bundled!"
+    @ls -lh target/bundled/
+
+# Package all plugins for distribution (rebuilds plugins first)
+package-plugins: build-plugins
+    just _package-plugins-only
+
+# Package existing plugin builds without rebuilding
+package-plugins-quick:
+    just _package-plugins-only
+
+# Internal: Package plugins from target/bundled
+_package-plugins-only:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Get version from plugin Cargo.toml
+    VERSION=$(grep '^version' ordiseq_plug/Cargo.toml | head -1 | cut -d'"' -f2)
+    DIST_DIR="target/dist"
+    PACKAGE_NAME="ordiseq-plugins-v${VERSION}"
+    PACKAGE_DIR="${DIST_DIR}/${PACKAGE_NAME}"
+
+    echo "Creating distribution package: ${PACKAGE_NAME}"
+
+    # Clean and create distribution directory
+    rm -rf "${DIST_DIR}"
+    mkdir -p "${PACKAGE_DIR}"/{VST3,CLAP}
+
+    # Copy plugins
+    echo "Copying plugins..."
+    cp target/bundled/ordiseq_plug.clap "${PACKAGE_DIR}/CLAP/"
+    cp target/bundled/midi_inverter_plug.clap "${PACKAGE_DIR}/CLAP/"
+    cp -r target/bundled/ordiseq_plug.vst3 "${PACKAGE_DIR}/VST3/"
+    cp -r target/bundled/midi_inverter_plug.vst3 "${PACKAGE_DIR}/VST3/"
+
+    # Copy documentation
+    echo "Copying documentation..."
+    cp PLUGINS.md "${PACKAGE_DIR}/README.md"
+    cp LICENSE.txt "${PACKAGE_DIR}/" 2>/dev/null || echo "No LICENSE file found"
+
+    # Create installation instructions
+    {
+        echo "ORDISEQ PLUGIN SUITE INSTALLATION INSTRUCTIONS"
+        echo ""
+        echo "This package contains two plugins:"
+        echo "- Melody Player: Plays Jingle Bells and Row Row Your Boat"
+        echo "- MIDI Inverter: Inverts MIDI notes around a center point"
+        echo ""
+        echo "INSTALLATION:"
+        echo ""
+        echo "Windows:"
+        echo "  VST3: Copy VST3 folder contents to C:\\Program Files\\Common Files\\VST3\\"
+        echo "  CLAP: Copy CLAP folder contents to C:\\Program Files\\Common Files\\CLAP\\"
+        echo ""
+        echo "macOS:"
+        echo "  VST3: Copy VST3 folder contents to ~/Library/Audio/Plug-Ins/VST3/"
+        echo "  CLAP: Copy CLAP folder contents to ~/Library/Audio/Plug-Ins/CLAP/"
+        echo ""
+        echo "Linux:"
+        echo "  VST3: Copy VST3 folder contents to ~/.vst3/"
+        echo "  CLAP: Copy CLAP folder contents to ~/.clap/"
+        echo ""
+        echo "After installation, rescan plugins in your DAW."
+        echo ""
+        echo "For detailed usage instructions, see README.md"
+        echo ""
+        echo "Website: https://github.com/EnigmaCurry/ordiseq"
+    } > "${PACKAGE_DIR}/INSTALL.txt"
+
+    # Create archive
+    echo "Creating archive..."
+    cd "${DIST_DIR}"
+
+    # Detect platform and create appropriate archive
+    if command -v zip >/dev/null 2>&1; then
+        zip -r "${PACKAGE_NAME}.zip" "${PACKAGE_NAME}"
+        echo "Created: ${DIST_DIR}/${PACKAGE_NAME}.zip"
+    fi
+
+    if command -v tar >/dev/null 2>&1; then
+        tar -czf "${PACKAGE_NAME}.tar.gz" "${PACKAGE_NAME}"
+        echo "Created: ${DIST_DIR}/${PACKAGE_NAME}.tar.gz"
+    fi
+
+    cd - >/dev/null
+
+    echo ""
+    echo "Distribution package ready in: ${DIST_DIR}/"
+    ls -lh "${DIST_DIR}"/*.{zip,tar.gz} 2>/dev/null || ls -lh "${DIST_DIR}/"
+    echo ""
+    echo "Package contents:"
+    ls -R "${PACKAGE_DIR}"
 
 # Run ordiseq_app in development mode
 run-app:
