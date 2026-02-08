@@ -37,12 +37,14 @@ struct OrdiseqTopograph {
     samples_elapsed: u32,
     sample_rate: f32,
 
-    // Active note tracking for 3 channels
+    // Active note tracking for 5 channels
     active_bd_note: Option<u8>,
     active_sd_note: Option<u8>,
     active_hh_note: Option<u8>,
+    active_shaker_note: Option<u8>,
+    active_perc_note: Option<u8>,
 
-    // Pattern cache (32 steps × 3 channels)
+    // Pattern cache (32 steps × 5 channels)
     cached_pattern: [DrumPattern; 32],
 
     // Parameter change detection
@@ -52,6 +54,8 @@ struct OrdiseqTopograph {
     last_sd_density: i32,
     last_hh_density: i32,
     last_randomness: i32,
+    last_shaker_density: i32,
+    last_perc_density: i32,
 
     // RNG state for deterministic randomness
     rng_state: u32,
@@ -59,9 +63,11 @@ struct OrdiseqTopograph {
 
 #[derive(Clone, Copy)]
 struct DrumPattern {
-    bd: bool,  // bass drum hit
-    sd: bool,  // snare drum hit
-    hh: bool,  // hi-hat hit
+    bd: bool,      // bass drum hit
+    sd: bool,      // snare drum hit
+    hh: bool,      // hi-hat hit
+    shaker: bool,  // shaker/tambourine (derived from HH probability)
+    perc: bool,    // syncopated percussion (inverted BD pattern)
 }
 
 impl Default for DrumPattern {
@@ -70,6 +76,8 @@ impl Default for DrumPattern {
             bd: false,
             sd: false,
             hh: false,
+            shaker: false,
+            perc: false,
         }
     }
 }
@@ -93,6 +101,15 @@ struct OrdiseqTopographParams {
 
     #[id = "randomness"]
     pub randomness: IntParam,
+
+    #[id = "shaker_density"]
+    pub shaker_density: IntParam,
+
+    #[id = "perc_density"]
+    pub perc_density: IntParam,
+
+    #[id = "speed"]
+    pub speed: IntParam,
 }
 
 impl Default for OrdiseqTopographParams {
@@ -128,6 +145,37 @@ impl Default for OrdiseqTopographParams {
                 0,
                 IntRange::Linear { min: 0, max: 255 },
             ),
+            shaker_density: IntParam::new(
+                "Shaker Density",
+                0,
+                IntRange::Linear { min: 0, max: 255 },
+            ),
+            perc_density: IntParam::new(
+                "Perc Density",
+                0,
+                IntRange::Linear { min: 0, max: 255 },
+            ),
+            speed: IntParam::new(
+                "Speed",
+                1,
+                IntRange::Linear { min: 0, max: 2 },
+            )
+            .with_value_to_string(Arc::new(|value| {
+                match value {
+                    0 => "Slow".to_string(),
+                    1 => "Medium".to_string(),
+                    2 => "Fast".to_string(),
+                    _ => "Medium".to_string(),
+                }
+            }))
+            .with_string_to_value(Arc::new(|string| {
+                match string {
+                    "Slow" => Some(0),
+                    "Medium" => Some(1),
+                    "Fast" => Some(2),
+                    _ => None,
+                }
+            })),
         }
     }
 }
@@ -142,6 +190,8 @@ impl Default for OrdiseqTopograph {
             active_bd_note: None,
             active_sd_note: None,
             active_hh_note: None,
+            active_shaker_note: None,
+            active_perc_note: None,
             cached_pattern: [DrumPattern::default(); 32],
             last_map_x: -1,
             last_map_y: -1,
@@ -149,6 +199,8 @@ impl Default for OrdiseqTopograph {
             last_sd_density: -1,
             last_hh_density: -1,
             last_randomness: -1,
+            last_shaker_density: -1,
+            last_perc_density: -1,
             rng_state: 12345,
         }
     }
@@ -156,7 +208,6 @@ impl Default for OrdiseqTopograph {
 
 impl OrdiseqTopograph {
     const DEFAULT_TEMPO_BPM: f32 = 120.0;
-    const STEPS_PER_BEAT: f32 = 4.0;  // 16th notes
     const PATTERN_LENGTH: usize = 32;
     const NOTE_GATE: f32 = 0.5;  // 50% gate length
 
@@ -164,10 +215,23 @@ impl OrdiseqTopograph {
     const BD_NOTE: u8 = 36;  // C1 - Bass Drum
     const SD_NOTE: u8 = 38;  // D1 - Snare Drum
     const HH_NOTE: u8 = 42;  // F#1 - Closed Hi-Hat
+    const SHAKER_NOTE: u8 = 51;  // Eb2 - Ride Cymbal 1 (algorithmically derived from HH)
+    const PERC_NOTE: u8 = 50;    // D2 - High Tom (inverted BD pattern)
 
-    /// Calculate samples per step based on tempo
+    /// Get steps per beat based on speed parameter
+    fn steps_per_beat(&self) -> f32 {
+        match self.params.speed.value() {
+            0 => 2.0,  // Slow: 8th notes
+            1 => 4.0,  // Medium: 16th notes (default)
+            2 => 8.0,  // Fast: 32nd notes
+            _ => 4.0,  // Default to medium
+        }
+    }
+
+    /// Calculate samples per step based on tempo and speed
     fn samples_per_step(&self, tempo_bpm: f32) -> u32 {
-        (self.sample_rate * 60.0 / (tempo_bpm * Self::STEPS_PER_BEAT)) as u32
+        let steps_per_beat = self.steps_per_beat();
+        (self.sample_rate * 60.0 / (tempo_bpm * steps_per_beat)) as u32
     }
 
     /// Check if parameters changed and regenerate pattern if needed
@@ -178,6 +242,8 @@ impl OrdiseqTopograph {
         let sd_density = self.params.sd_density.value();
         let hh_density = self.params.hh_density.value();
         let randomness = self.params.randomness.value();
+        let shaker_density = self.params.shaker_density.value();
+        let perc_density = self.params.perc_density.value();
 
         // Check if any parameter changed
         if map_x == self.last_map_x
@@ -186,12 +252,14 @@ impl OrdiseqTopograph {
             && sd_density == self.last_sd_density
             && hh_density == self.last_hh_density
             && randomness == self.last_randomness
+            && shaker_density == self.last_shaker_density
+            && perc_density == self.last_perc_density
         {
             return; // No change needed
         }
 
         // Regenerate pattern
-        self.generate_pattern(map_x, map_y, bd_density, sd_density, hh_density, randomness);
+        self.generate_pattern(map_x, map_y, bd_density, sd_density, hh_density, randomness, shaker_density, perc_density);
 
         // Update cache tracking
         self.last_map_x = map_x;
@@ -200,6 +268,8 @@ impl OrdiseqTopograph {
         self.last_sd_density = sd_density;
         self.last_hh_density = hh_density;
         self.last_randomness = randomness;
+        self.last_shaker_density = shaker_density;
+        self.last_perc_density = perc_density;
 
         // Don't reset playback position - let pattern continue smoothly
         // This prevents rapid retriggering when adjusting parameters
@@ -217,6 +287,8 @@ impl OrdiseqTopograph {
         sd_density: i32,
         hh_density: i32,
         randomness: i32,
+        shaker_density: i32,
+        perc_density: i32,
     ) {
         // Convert 0-255 map coordinates to floating-point grid position (0.0-4.0)
         let x_float = (map_x as f32 / 255.0) * 4.0;
@@ -282,11 +354,35 @@ impl OrdiseqTopograph {
             );
             let hh_hit = (hh_val + rand_offset) > (255 - hh_density);
 
+            // Algorithmically-derived channels:
+
+            // Shaker: Use HH interpolated value as probability generator
+            // When HH pattern has high values, shaker is more likely to trigger
+            let shaker_hit = if shaker_density > 0 {
+                // Use HH pattern value as probability threshold
+                // Higher HH values = more likely to trigger shaker
+                let shaker_threshold = 255 - ((hh_val as f32 * shaker_density as f32) / 255.0) as i32;
+                (rand_offset + 128) > shaker_threshold
+            } else {
+                false
+            };
+
+            // Perc: Inverted BD pattern for syncopation
+            // Triggers where BD doesn't, creating counterpoint rhythm
+            let perc_hit = if perc_density > 0 {
+                let inverted_bd_val = 255 - bd_val;
+                (inverted_bd_val + rand_offset) > (255 - perc_density)
+            } else {
+                false
+            };
+
             // Store in cached pattern
             self.cached_pattern[step] = DrumPattern {
                 bd: bd_hit,
                 sd: sd_hit,
                 hh: hh_hit,
+                shaker: shaker_hit,
+                perc: perc_hit,
             };
         }
     }
@@ -348,6 +444,24 @@ impl OrdiseqTopograph {
             });
         }
         if let Some(note) = self.active_hh_note.take() {
+            context.send_event(NoteEvent::NoteOff {
+                timing,
+                voice_id: None,
+                channel: 0,
+                note,
+                velocity: 0.0,
+            });
+        }
+        if let Some(note) = self.active_shaker_note.take() {
+            context.send_event(NoteEvent::NoteOff {
+                timing,
+                voice_id: None,
+                channel: 0,
+                note,
+                velocity: 0.0,
+            });
+        }
+        if let Some(note) = self.active_perc_note.take() {
             context.send_event(NoteEvent::NoteOff {
                 timing,
                 voice_id: None,
@@ -461,6 +575,26 @@ impl Plugin for OrdiseqTopograph {
                         velocity: 0.8,
                     });
                     self.active_hh_note = Some(Self::HH_NOTE);
+                }
+                if pattern.shaker {
+                    context.send_event(NoteEvent::NoteOn {
+                        timing: processed_samples,
+                        voice_id: None,
+                        channel: 0,
+                        note: Self::SHAKER_NOTE,
+                        velocity: 0.6,
+                    });
+                    self.active_shaker_note = Some(Self::SHAKER_NOTE);
+                }
+                if pattern.perc {
+                    context.send_event(NoteEvent::NoteOn {
+                        timing: processed_samples,
+                        voice_id: None,
+                        channel: 0,
+                        note: Self::PERC_NOTE,
+                        velocity: 0.7,
+                    });
+                    self.active_perc_note = Some(Self::PERC_NOTE);
                 }
             }
 
