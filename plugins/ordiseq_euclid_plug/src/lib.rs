@@ -31,6 +31,12 @@ struct OrdiseqEuclidParams {
 
     #[id = "rotate"]
     pub rotate: IntParam,
+
+    #[id = "transpose"]
+    pub transpose: IntParam,
+
+    #[id = "velocity"]
+    pub velocity: FloatParam,
 }
 
 impl Default for OrdiseqEuclidParams {
@@ -50,6 +56,16 @@ impl Default for OrdiseqEuclidParams {
                 "Rotate",
                 0,
                 IntRange::Linear { min: 0, max: 31 },
+            ),
+            transpose: IntParam::new(
+                "Transpose",
+                0,
+                IntRange::Linear { min: -24, max: 24 },
+            ),
+            velocity: FloatParam::new(
+                "Velocity",
+                0.8,
+                FloatRange::Linear { min: 0.0, max: 1.0 },
             ),
         }
     }
@@ -72,8 +88,8 @@ impl Default for OrdiseqEuclid {
 }
 
 impl OrdiseqEuclid {
-    /// Tempo in BPM (16th notes)
-    const TEMPO_BPM: f32 = 120.0;
+    /// Default tempo in BPM if DAW doesn't provide one
+    const DEFAULT_TEMPO_BPM: f32 = 120.0;
     /// Subdivision: 16th notes (4 per beat)
     const STEPS_PER_BEAT: f32 = 4.0;
     /// The MIDI note to play for hits
@@ -82,79 +98,34 @@ impl OrdiseqEuclid {
     const NOTE_GATE: f32 = 0.5;
 
     /// Calculate samples per step based on sample rate and tempo
-    fn samples_per_step(&self) -> u32 {
-        (self.sample_rate * 60.0 / (Self::TEMPO_BPM * Self::STEPS_PER_BEAT)) as u32
+    fn samples_per_step(&self, tempo_bpm: f32) -> u32 {
+        (self.sample_rate * 60.0 / (tempo_bpm * Self::STEPS_PER_BEAT)) as u32
     }
 
-    /// Generate a Euclidean rhythm pattern using Bjorklund's algorithm
+    /// Generate a Euclidean rhythm pattern using the Bresenham line algorithm
+    /// This is simpler and more reliable than Bjorklund's algorithm
     fn generate_euclidean_pattern(length: usize, hits: usize) -> Vec<bool> {
-        if length == 0 || hits == 0 {
-            return vec![false; length.max(1)];
+        if length == 0 {
+            return vec![false];
+        }
+
+        if hits == 0 {
+            return vec![false; length];
         }
 
         let hits = hits.min(length);
         let mut pattern = vec![false; length];
 
-        if hits == 0 {
-            return pattern;
-        }
-
-        // Bjorklund's algorithm
-        let mut counts = vec![0; length];
-        let mut remainders = vec![0; length];
-
-        let mut divisor = length - hits;
-        remainders[0] = hits;
-
-        let mut level = 0;
-        loop {
-            counts[level] = divisor / remainders[level];
-            remainders[level + 1] = divisor % remainders[level];
-            divisor = remainders[level];
-            level += 1;
-
-            if remainders[level] <= 1 {
-                break;
+        // Use Bresenham's line algorithm to evenly distribute hits
+        let mut error = 0i32;
+        for i in 0..length {
+            error += hits as i32;
+            if error >= length as i32 {
+                pattern[i] = true;
+                error -= length as i32;
             }
         }
 
-        counts[level] = divisor;
-
-        // Build the pattern
-        let mut index = 0;
-        fn build(
-            pattern: &mut Vec<bool>,
-            index: &mut usize,
-            level: usize,
-            counts: &[usize],
-            remainders: &[usize],
-        ) {
-            if level == 0 {
-                pattern[*index] = true;
-                *index += 1;
-            } else if level == 1 {
-                for _ in 0..counts[0] {
-                    pattern[*index] = true;
-                    *index += 1;
-                    pattern[*index] = false;
-                    *index += 1;
-                }
-                if remainders[0] > 0 {
-                    pattern[*index] = true;
-                    *index += 1;
-                }
-            } else {
-                for _ in 0..counts[level - 1] {
-                    build(pattern, index, level - 1, counts, remainders);
-                    build(pattern, index, level - 2, counts, remainders);
-                }
-                if remainders[level - 1] > 0 {
-                    build(pattern, index, level - 1, counts, remainders);
-                }
-            }
-        }
-
-        build(&mut pattern, &mut index, level, &counts, &remainders);
         pattern
     }
 
@@ -171,6 +142,14 @@ impl OrdiseqEuclid {
         rotated
     }
 
+    /// Calculate the transposed note, clamped to valid MIDI range (0-127)
+    fn get_transposed_note(&self) -> u8 {
+        let base_note = Self::HIT_NOTE as i32;
+        let transpose = self.params.transpose.value();
+        let transposed = (base_note + transpose).clamp(0, 127);
+        transposed as u8
+    }
+
     /// Update the pattern if parameters have changed
     fn update_pattern_if_needed(&mut self) {
         let length = self.params.length.value();
@@ -184,6 +163,11 @@ impl OrdiseqEuclid {
                 hits as usize,
             );
             new_pattern = Self::rotate_pattern(new_pattern, rotate as usize);
+
+            // Safety check: ensure pattern is never empty
+            if new_pattern.is_empty() {
+                new_pattern = vec![false];
+            }
 
             self.pattern = new_pattern;
             self.last_length = length;
@@ -257,9 +241,12 @@ impl Plugin for OrdiseqEuclid {
         // Update pattern if parameters changed
         self.update_pattern_if_needed();
 
+        // Get tempo from DAW, or use default if not available
+        let tempo_bpm = transport.tempo.unwrap_or(Self::DEFAULT_TEMPO_BPM as f64) as f32;
+
         // Transport is playing, generate the rhythm
         let buffer_len = buffer.samples() as u32;
-        let samples_per_step = self.samples_per_step();
+        let samples_per_step = self.samples_per_step(tempo_bpm);
         let note_duration_samples = (samples_per_step as f32 * Self::NOTE_GATE) as u32;
 
         let mut processed_samples = 0u32;
@@ -281,14 +268,16 @@ impl Plugin for OrdiseqEuclid {
             // Start of a new step
             if self.samples_elapsed == 0 && is_hit {
                 // Send note on at the current sample offset
+                let note = self.get_transposed_note();
+                let velocity = self.params.velocity.value();
                 context.send_event(NoteEvent::NoteOn {
                     timing: processed_samples,
                     voice_id: None,
                     channel: 0,
-                    note: Self::HIT_NOTE,
-                    velocity: 0.8,
+                    note,
+                    velocity,
                 });
-                self.active_note = Some(Self::HIT_NOTE);
+                self.active_note = Some(note);
             }
 
             // Calculate how many samples remain in the current step
@@ -325,8 +314,13 @@ impl Plugin for OrdiseqEuclid {
                     });
                 }
 
-                // Move to next step in the pattern
-                self.current_step = (self.current_step + 1) % self.pattern.len();
+                // Move to next step in the pattern (with safety check)
+                let pattern_len = self.pattern.len();
+                if pattern_len > 0 {
+                    self.current_step = (self.current_step + 1) % pattern_len;
+                } else {
+                    self.current_step = 0;
+                }
                 self.samples_elapsed = 0;
             }
         }
