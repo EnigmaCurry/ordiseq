@@ -1,25 +1,69 @@
 use nih_plug::prelude::*;
 use std::sync::Arc;
 
-/// A plugin that inverts all MIDI note numbers, channels, CCs, velocitires, pressures, and
-/// everything else you don't want to be inverted.
-struct MidiInverter {
-    params: Arc<MidiInverterParams>,
+/// A plugin that plays Jingle Bells continuously when the transport is playing
+struct JingleBells {
+    params: Arc<JingleBellsParams>,
+    /// Current position in the melody (note index)
+    current_note: usize,
+    /// Samples elapsed since the current note started
+    samples_elapsed: u32,
+    /// Currently playing note (to track when to send note off)
+    active_note: Option<u8>,
+    /// Sample rate for timing calculations
+    sample_rate: f32,
 }
 
 #[derive(Default, Params)]
-struct MidiInverterParams {}
+struct JingleBellsParams {}
 
-impl Default for MidiInverter {
+/// A note in the melody with its MIDI note number and duration in beats
+#[derive(Clone, Copy)]
+struct MelodyNote {
+    note: u8,
+    duration_beats: f32,
+}
+
+impl JingleBells {
+    /// The Jingle Bells melody (first line)
+    /// E E E - E E E - E G C D E
+    const MELODY: &'static [MelodyNote] = &[
+        MelodyNote { note: 64, duration_beats: 1.0 },  // E4
+        MelodyNote { note: 64, duration_beats: 1.0 },  // E4
+        MelodyNote { note: 64, duration_beats: 2.0 },  // E4 (half note)
+        MelodyNote { note: 64, duration_beats: 1.0 },  // E4
+        MelodyNote { note: 64, duration_beats: 1.0 },  // E4
+        MelodyNote { note: 64, duration_beats: 2.0 },  // E4 (half note)
+        MelodyNote { note: 64, duration_beats: 1.0 },  // E4
+        MelodyNote { note: 67, duration_beats: 1.0 },  // G4
+        MelodyNote { note: 60, duration_beats: 1.5 },  // C4 (dotted quarter)
+        MelodyNote { note: 62, duration_beats: 0.5 },  // D4 (eighth note)
+        MelodyNote { note: 64, duration_beats: 4.0 },  // E4 (whole note)
+    ];
+
+    /// Tempo in BPM
+    const TEMPO_BPM: f32 = 120.0;
+
+    /// Calculate samples per beat based on sample rate and tempo
+    fn samples_per_beat(&self) -> u32 {
+        (self.sample_rate * 60.0 / Self::TEMPO_BPM) as u32
+    }
+}
+
+impl Default for JingleBells {
     fn default() -> Self {
         Self {
-            params: Arc::new(MidiInverterParams::default()),
+            params: Arc::new(JingleBellsParams::default()),
+            current_note: 0,
+            samples_elapsed: 0,
+            active_note: None,
+            sample_rate: 44100.0,
         }
     }
 }
 
-impl Plugin for MidiInverter {
-    const NAME: &'static str = "Ordiseq";
+impl Plugin for JingleBells {
+    const NAME: &'static str = "Jingle Bells";
     const VENDOR: &'static str = "EnigmaCurry";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "ryan@enigmacurry.com";
@@ -28,7 +72,7 @@ impl Plugin for MidiInverter {
     // This plugin doesn't have any audio IO
     const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[];
 
-    const MIDI_INPUT: MidiConfig = MidiConfig::MidiCCs;
+    const MIDI_INPUT: MidiConfig = MidiConfig::None;
     const MIDI_OUTPUT: MidiConfig = MidiConfig::MidiCCs;
     const SAMPLE_ACCURATE_AUTOMATION: bool = true;
 
@@ -39,175 +83,88 @@ impl Plugin for MidiInverter {
         self.params.clone()
     }
 
+    fn initialize(
+        &mut self,
+        _audio_io_layout: &AudioIOLayout,
+        buffer_config: &BufferConfig,
+        _context: &mut impl InitContext<Self>,
+    ) -> bool {
+        self.sample_rate = buffer_config.sample_rate;
+        true
+    }
+
     fn process(
         &mut self,
-        _buffer: &mut Buffer,
+        buffer: &mut Buffer,
         _aux: &mut AuxiliaryBuffers,
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        // We'll invert the channel, note index, velocity, pressure, CC value, pitch bend, and
-        // anything else that is invertable for all events we receive
-        while let Some(event) = context.next_event() {
-            match event {
-                NoteEvent::NoteOn {
-                    timing,
-                    voice_id,
-                    channel,
+        let transport = context.transport();
+        let is_playing = transport.playing;
+
+        // If transport is not playing, stop any active notes and reset
+        if !is_playing {
+            if let Some(note) = self.active_note.take() {
+                context.send_event(NoteEvent::NoteOff {
+                    timing: 0,
+                    voice_id: None,
+                    channel: 0,
                     note,
-                    velocity,
-                } => context.send_event(NoteEvent::NoteOn {
-                    timing,
-                    voice_id,
-                    channel: 15 - channel,
-                    note: 127 - note,
-                    velocity: 1.0 - velocity,
-                }),
-                NoteEvent::NoteOff {
-                    timing,
-                    voice_id,
-                    channel,
-                    note,
-                    velocity,
-                } => context.send_event(NoteEvent::NoteOff {
-                    timing,
-                    voice_id,
-                    channel: 15 - channel,
-                    note: 127 - note,
-                    velocity: 1.0 - velocity,
-                }),
-                NoteEvent::Choke {
-                    timing,
-                    voice_id,
-                    channel,
-                    note,
-                } => context.send_event(NoteEvent::Choke {
-                    timing,
-                    voice_id,
-                    channel: 15 - channel,
-                    note: 127 - note,
-                }),
-                NoteEvent::PolyPressure {
-                    timing,
-                    voice_id,
-                    channel,
-                    note,
-                    pressure,
-                } => context.send_event(NoteEvent::PolyPressure {
-                    timing,
-                    voice_id,
-                    channel: 15 - channel,
-                    note: 127 - note,
-                    pressure: 1.0 - pressure,
-                }),
-                NoteEvent::PolyVolume {
-                    timing,
-                    voice_id,
-                    channel,
-                    note,
-                    gain,
-                } => context.send_event(NoteEvent::PolyVolume {
-                    timing,
-                    voice_id,
-                    channel: 15 - channel,
-                    note: 127 - note,
-                    gain: 1.0 - gain,
-                }),
-                NoteEvent::PolyPan {
-                    timing,
-                    voice_id,
-                    channel,
-                    note,
-                    pan,
-                } => context.send_event(NoteEvent::PolyPan {
-                    timing,
-                    voice_id,
-                    channel: 15 - channel,
-                    note: 127 - note,
-                    pan: 1.0 - pan,
-                }),
-                NoteEvent::PolyTuning {
-                    timing,
-                    voice_id,
-                    channel,
-                    note,
-                    tuning,
-                } => context.send_event(NoteEvent::PolyTuning {
-                    timing,
-                    voice_id,
-                    channel: 15 - channel,
-                    note: 127 - note,
-                    tuning: 1.0 - tuning,
-                }),
-                NoteEvent::PolyVibrato {
-                    timing,
-                    voice_id,
-                    channel,
-                    note,
-                    vibrato,
-                } => context.send_event(NoteEvent::PolyVibrato {
-                    timing,
-                    voice_id,
-                    channel: 15 - channel,
-                    note: 127 - note,
-                    vibrato: 1.0 - vibrato,
-                }),
-                NoteEvent::PolyExpression {
-                    timing,
-                    voice_id,
-                    channel,
-                    note,
-                    expression,
-                } => context.send_event(NoteEvent::PolyExpression {
-                    timing,
-                    voice_id,
-                    channel: 15 - channel,
-                    note: 127 - note,
-                    expression: 1.0 - expression,
-                }),
-                NoteEvent::PolyBrightness {
-                    timing,
-                    voice_id,
-                    channel,
-                    note,
-                    brightness,
-                } => context.send_event(NoteEvent::PolyBrightness {
-                    timing,
-                    voice_id,
-                    channel: 15 - channel,
-                    note: 127 - note,
-                    brightness: 1.0 - brightness,
-                }),
-                NoteEvent::MidiChannelPressure {
-                    timing,
-                    channel,
-                    pressure,
-                } => context.send_event(NoteEvent::MidiChannelPressure {
-                    timing,
-                    channel: 15 - channel,
-                    pressure: 1.0 - pressure,
-                }),
-                NoteEvent::MidiPitchBend {
-                    timing,
-                    channel,
-                    value,
-                } => context.send_event(NoteEvent::MidiPitchBend {
-                    timing,
-                    channel: 15 - channel,
-                    value: 1.0 - value,
-                }),
-                NoteEvent::MidiCC {
-                    timing,
-                    channel,
-                    cc,
-                    value,
-                } => context.send_event(NoteEvent::MidiCC {
-                    timing,
-                    channel: 15 - channel,
-                    // The one thing we won't invert, because uuhhhh
-                    cc,
-                    value: 1.0 - value,
-                }),
-                _ => (),
+                    velocity: 0.0,
+                });
+            }
+            self.samples_elapsed = 0;
+            return ProcessStatus::Normal;
+        }
+
+        // Transport is playing, generate the melody
+        let buffer_len = buffer.samples() as u32;
+        let samples_per_beat = self.samples_per_beat();
+
+        let mut processed_samples = 0u32;
+
+        // Process note events within this buffer
+        while processed_samples < buffer_len {
+            let current_melody_note = Self::MELODY[self.current_note];
+            let note_duration_samples = (current_melody_note.duration_beats * samples_per_beat as f32) as u32;
+
+            // Start of a new note
+            if self.samples_elapsed == 0 {
+                // Send note on at the current sample offset
+                context.send_event(NoteEvent::NoteOn {
+                    timing: processed_samples,
+                    voice_id: None,
+                    channel: 0,
+                    note: current_melody_note.note,
+                    velocity: 0.8,
+                });
+                self.active_note = Some(current_melody_note.note);
+            }
+
+            // Calculate how many samples remain in the current note
+            let samples_remaining_in_note = note_duration_samples - self.samples_elapsed;
+            let samples_remaining_in_buffer = buffer_len - processed_samples;
+            let samples_to_process = samples_remaining_in_note.min(samples_remaining_in_buffer);
+
+            self.samples_elapsed += samples_to_process;
+            processed_samples += samples_to_process;
+
+            // Check if we've reached the end of the current note
+            if self.samples_elapsed >= note_duration_samples {
+                // Send note off
+                if let Some(note) = self.active_note.take() {
+                    context.send_event(NoteEvent::NoteOff {
+                        timing: processed_samples.saturating_sub(1),
+                        voice_id: None,
+                        channel: 0,
+                        note,
+                        velocity: 0.0,
+                    });
+                }
+
+                // Move to next note in the melody
+                self.current_note = (self.current_note + 1) % Self::MELODY.len();
+                self.samples_elapsed = 0;
             }
         }
 
@@ -215,20 +172,20 @@ impl Plugin for MidiInverter {
     }
 }
 
-impl ClapPlugin for MidiInverter {
-    const CLAP_ID: &'static str = "com.moist-plugins-gmbh.midi-inverter";
+impl ClapPlugin for JingleBells {
+    const CLAP_ID: &'static str = "com.enigmacurry.jingle-bells";
     const CLAP_DESCRIPTION: Option<&'static str> =
-        Some("Inverts all note and MIDI signals in ways you don't want to");
+        Some("Plays Jingle Bells continuously when transport is playing");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
     const CLAP_SUPPORT_URL: Option<&'static str> = None;
-    const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::NoteEffect, ClapFeature::Utility];
+    const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::Instrument];
 }
 
-impl Vst3Plugin for MidiInverter {
-    const VST3_CLASS_ID: [u8; 16] = *b"M1d1Inv3r70rzAaA";
+impl Vst3Plugin for JingleBells {
+    const VST3_CLASS_ID: [u8; 16] = *b"J1ngl3B3llsAaAaA";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
-        &[Vst3SubCategory::Instrument, Vst3SubCategory::Tools];
+        &[Vst3SubCategory::Instrument];
 }
 
-nih_export_clap!(MidiInverter);
-nih_export_vst3!(MidiInverter);
+nih_export_clap!(JingleBells);
+nih_export_vst3!(JingleBells);
