@@ -1,0 +1,194 @@
+name: Test Release Build
+
+on:
+  workflow_dispatch:  # Manual trigger
+  push:
+    branches:
+      - dev
+    paths:
+      - '.github/workflows/release.yml'
+      - '.github/workflows/test-release.yml'
+
+jobs:
+  build-app-and-plugins:
+    name: Build ${{ matrix.platform }} (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            os_name: linux
+            arch: x86_64
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            os_name: windows
+            arch: x86_64
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            os_name: macos
+            arch: arm64
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            os_name: macos
+            arch: x86_64
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          shared-key: ${{ matrix.target }}-release
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            libasound2-dev
+
+      - name: Install frontend dependencies
+        run: |
+          cd ordiseq_app/frontend
+          npm install
+
+      - name: Install Tauri CLI
+        run: |
+          cd ordiseq_app
+          npm install
+
+      - name: Build Tauri app
+        run: |
+          cd ordiseq_app
+          npm run tauri build -- --target ${{ matrix.target }}
+
+      - name: Build plugins
+        run: |
+          cargo run --package xtask --release -- bundle melody_player_plug --release --target ${{ matrix.target }}
+          cargo run --package xtask --release -- bundle midi_inverter_plug --release --target ${{ matrix.target }}
+
+      - name: Package plugins (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          mkdir -p dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}
+          mkdir -p dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/{VST3,CLAP}
+          cp target/bundled/melody_player_plug.clap dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/CLAP/
+          cp target/bundled/midi_inverter_plug.clap dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/CLAP/
+          cp -r target/bundled/melody_player_plug.vst3 dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/VST3/
+          cp -r target/bundled/midi_inverter_plug.vst3 dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/VST3/
+          cp PLUGINS.md dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/README.md
+          cd dist
+          tar -czf ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}.tar.gz ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}
+
+      - name: Package plugins (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        run: |
+          mkdir -p dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}
+          mkdir -p dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/{VST3,CLAP}
+          cp target/bundled/melody_player_plug.clap dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/CLAP/
+          cp target/bundled/midi_inverter_plug.clap dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/CLAP/
+          cp -r target/bundled/melody_player_plug.vst3 dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/VST3/
+          cp -r target/bundled/midi_inverter_plug.vst3 dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/VST3/
+          cp PLUGINS.md dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/README.md
+          cd dist
+          7z a -tzip ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}.zip ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}
+
+      - name: Package plugins (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          mkdir -p dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}
+          mkdir -p dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/{VST3,CLAP}
+          cp target/bundled/melody_player_plug.clap dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/CLAP/
+          cp target/bundled/midi_inverter_plug.clap dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/CLAP/
+          cp -r target/bundled/melody_player_plug.vst3 dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/VST3/
+          cp -r target/bundled/midi_inverter_plug.vst3 dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/VST3/
+          cp PLUGINS.md dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/README.md
+          cd dist
+          tar -czf ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}.tar.gz ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}
+
+      # Upload artifacts to workflow run (not to a release)
+      - name: Upload Linux app artifacts
+        if: matrix.platform == 'ubuntu-22.04'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ordiseq-app-linux-x86_64
+          path: |
+            target/${{ matrix.target }}/release/bundle/deb/*.deb
+            target/${{ matrix.target }}/release/bundle/rpm/*.rpm
+            target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
+
+      - name: Upload Windows app artifacts
+        if: matrix.platform == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ordiseq-app-windows-x86_64
+          path: |
+            target/${{ matrix.target }}/release/bundle/msi/*.msi
+            target/${{ matrix.target }}/release/bundle/nsis/*.exe
+
+      - name: Upload macOS app artifacts (ARM)
+        if: matrix.platform == 'macos-latest' && matrix.target == 'aarch64-apple-darwin'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ordiseq-app-macos-arm64
+          path: |
+            target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+
+      - name: Upload macOS app artifacts (Intel)
+        if: matrix.platform == 'macos-latest' && matrix.target == 'x86_64-apple-darwin'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ordiseq-app-macos-x86_64
+          path: |
+            target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+
+      # Upload plugin artifacts
+      - name: Upload plugin artifacts (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ordiseq-plugins-linux-x86_64
+          path: dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}.tar.gz
+
+      - name: Upload plugin artifacts (Windows)
+        if: matrix.platform == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ordiseq-plugins-windows-x86_64
+          path: dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}.zip
+
+      - name: Upload plugin artifacts (macOS ARM)
+        if: matrix.platform == 'macos-latest' && matrix.target == 'aarch64-apple-darwin'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ordiseq-plugins-macos-arm64
+          path: dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}.tar.gz
+
+      - name: Upload plugin artifacts (macOS Intel)
+        if: matrix.platform == 'macos-latest' && matrix.target == 'x86_64-apple-darwin'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ordiseq-plugins-macos-x86_64
+          path: dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}.tar.gz
