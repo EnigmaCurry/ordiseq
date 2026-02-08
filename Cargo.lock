@@ -3514,6 +3514,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ordiseq_topograph_plug"
+version = "0.1.0"
+dependencies = [
+ "nih_plug",
+ "xtask",
+]
+
+[[package]]
 name = "pango"
 version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

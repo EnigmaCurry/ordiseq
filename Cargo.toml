@@ -2,5 +2,10 @@
 resolver = "2"
 
 members = [
-    "ordiseq", "plugins/melody_player_plug", "plugins/midi_inverter_plug", "plugins/ordiseq_euclid_plug", "ordiseq_app", "scale_omnibus", "xtask"
+    "ordiseq", "plugins/melody_player_plug", "plugins/midi_inverter_plug", "plugins/ordiseq_euclid_plug", "plugins/ordiseq_topograph_plug", "ordiseq_app", "scale_omnibus", "xtask"
 ]
+
+# Note: This workspace contains mixed licensing
+# - Most components are licensed under MIT (see LICENSE.txt)
+# - ordiseq_topograph_plug is licensed under GPL-3.0-or-later due to Mutable Instruments Grids heritage
+# See LICENSE.txt for complete licensing information

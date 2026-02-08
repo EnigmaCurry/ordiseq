@@ -107,6 +107,7 @@ jobs:
           cargo run --package xtask --release -- bundle melody_player_plug --release --target ${{ matrix.target }}
           cargo run --package xtask --release -- bundle midi_inverter_plug --release --target ${{ matrix.target }}
           cargo run --package xtask --release -- bundle ordiseq_euclid_plug --release --target ${{ matrix.target }}
+          cargo run --package xtask --release -- bundle ordiseq_topograph_plug --release --target ${{ matrix.target }}
 
       - name: Package plugins (Linux)
         if: matrix.platform == 'ubuntu-22.04'
@@ -116,9 +117,11 @@ jobs:
           cp target/bundled/melody_player_plug.clap dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/CLAP/
           cp target/bundled/midi_inverter_plug.clap dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/CLAP/
           cp target/bundled/ordiseq_euclid_plug.clap dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/CLAP/
+          cp target/bundled/ordiseq_topograph_plug.clap dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/CLAP/
           cp -r target/bundled/melody_player_plug.vst3 dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/VST3/
           cp -r target/bundled/midi_inverter_plug.vst3 dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/VST3/
           cp -r target/bundled/ordiseq_euclid_plug.vst3 dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/VST3/
+          cp -r target/bundled/ordiseq_topograph_plug.vst3 dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/VST3/
           cp PLUGINS.md dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/README.md
           cd dist
           tar -czf ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}.tar.gz ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}
@@ -132,9 +135,11 @@ jobs:
           cp target/bundled/melody_player_plug.clap dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/CLAP/
           cp target/bundled/midi_inverter_plug.clap dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/CLAP/
           cp target/bundled/ordiseq_euclid_plug.clap dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/CLAP/
+          cp target/bundled/ordiseq_topograph_plug.clap dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/CLAP/
           cp -r target/bundled/melody_player_plug.vst3 dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/VST3/
           cp -r target/bundled/midi_inverter_plug.vst3 dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/VST3/
           cp -r target/bundled/ordiseq_euclid_plug.vst3 dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/VST3/
+          cp -r target/bundled/ordiseq_topograph_plug.vst3 dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/VST3/
           cp PLUGINS.md dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/README.md
           cd dist
           7z a -tzip ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}.zip ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}
@@ -147,9 +152,11 @@ jobs:
           cp -r target/bundled/melody_player_plug.clap dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/CLAP/
           cp -r target/bundled/midi_inverter_plug.clap dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/CLAP/
           cp -r target/bundled/ordiseq_euclid_plug.clap dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/CLAP/
+          cp -r target/bundled/ordiseq_topograph_plug.clap dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/CLAP/
           cp -r target/bundled/melody_player_plug.vst3 dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/VST3/
           cp -r target/bundled/midi_inverter_plug.vst3 dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/VST3/
           cp -r target/bundled/ordiseq_euclid_plug.vst3 dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/VST3/
+          cp -r target/bundled/ordiseq_topograph_plug.vst3 dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/VST3/
           cp PLUGINS.md dist/ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}/README.md
           cd dist
           tar -czf ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}.tar.gz ordiseq-plugins-${{ matrix.os_name }}-${{ matrix.arch }}
