@@ -125,7 +125,7 @@ impl Default for MelodyPlayer {
 }
 
 impl Plugin for MelodyPlayer {
-    const NAME: &'static str = "Melody Player";
+    const NAME: &'static str = "Ordiseq Melody";
     const VENDOR: &'static str = "EnigmaCurry";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "ryan@enigmacurry.com";

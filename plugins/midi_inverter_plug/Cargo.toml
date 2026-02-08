@@ -12,4 +12,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs"] }
-xtask = { path = "../xtask" }
+xtask = { path = "../../xtask" }

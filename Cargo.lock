@@ -2749,6 +2749,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "melody_player_plug"
+version = "0.1.0"
+dependencies = [
+ "nih_plug",
+ "xtask",
+]
+
+[[package]]
 name = "memchr"
 version = "2.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3495,14 +3503,6 @@ dependencies = [
  "tauri-plugin-drag",
  "tauri-plugin-store",
  "tempfile",
-]
-
-[[package]]
-name = "ordiseq_plug"
-version = "0.1.0"
-dependencies = [
- "nih_plug",
- "xtask",
 ]
 
 [[package]]

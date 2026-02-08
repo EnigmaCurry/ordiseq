@@ -45,7 +45,7 @@ build *args:
 
 # Build and bundle the Melody Player plugin
 build-melody-player *args:
-    cargo run --package xtask --release -- bundle ordiseq_plug --release
+    cargo run --package xtask --release -- bundle melody_player_plug --release
 
 # Build and bundle the MIDI Inverter plugin
 build-midi-inverter *args:
@@ -70,7 +70,7 @@ _package-plugins-only:
     set -euo pipefail
 
     # Get version from plugin Cargo.toml
-    VERSION=$(grep '^version' ordiseq_plug/Cargo.toml | head -1 | cut -d'"' -f2)
+    VERSION=$(grep '^version' plugins/melody_player_plug/Cargo.toml | head -1 | cut -d'"' -f2)
     DIST_DIR="target/dist"
     PACKAGE_NAME="ordiseq-plugins-v${VERSION}"
     PACKAGE_DIR="${DIST_DIR}/${PACKAGE_NAME}"
@@ -83,9 +83,9 @@ _package-plugins-only:
 
     # Copy plugins
     echo "Copying plugins..."
-    cp target/bundled/ordiseq_plug.clap "${PACKAGE_DIR}/CLAP/"
+    cp target/bundled/melody_player_plug.clap "${PACKAGE_DIR}/CLAP/"
     cp target/bundled/midi_inverter_plug.clap "${PACKAGE_DIR}/CLAP/"
-    cp -r target/bundled/ordiseq_plug.vst3 "${PACKAGE_DIR}/VST3/"
+    cp -r target/bundled/melody_player_plug.vst3 "${PACKAGE_DIR}/VST3/"
     cp -r target/bundled/midi_inverter_plug.vst3 "${PACKAGE_DIR}/VST3/"
 
     # Copy documentation

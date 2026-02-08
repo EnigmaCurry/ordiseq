@@ -36,7 +36,7 @@ impl Default for MidiInverter {
 }
 
 impl Plugin for MidiInverter {
-    const NAME: &'static str = "MIDI Inverter";
+    const NAME: &'static str = "Ordiseq Inverter";
     const VENDOR: &'static str = "EnigmaCurry";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "ryan@enigmacurry.com";

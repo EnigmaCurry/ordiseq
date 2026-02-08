@@ -75,7 +75,7 @@ just run --example test
    * [kord](https://crates.io/crates/kord) (klib) - used for Pitches,
      Notes, Chords and more. Created by Aaron Roney.
 
- * [ordiseq_plug](ordiseq_plug) uses
+ * [melody_player_plug](plugins/melody_player_plug) uses
    [nih-plug](https://github.com/robbert-vdh/nih-plug) and started as
    a copy of [one of the nih-plug
    examples](https://github.com/robbert-vdh/nih-plug/blob/master/plugins/examples/midi_inverter/src/lib.rs).

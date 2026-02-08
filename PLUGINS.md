@@ -4,7 +4,7 @@ A collection of MIDI plugins built with [NIH-plug](https://github.com/robbert-vd
 
 ## Plugins
 
-### 1. Melody Player (ordiseq_plug)
+### 1. Melody Player (melody_player_plug)
 
 **Type:** MIDI Generator / Instrument
 **Formats:** VST3, CLAP
@@ -85,7 +85,7 @@ just build-midi-inverter
 ```
 
 Bundled plugins will be in `target/bundled/`:
-- `ordiseq_plug.clap` / `ordiseq_plug.vst3`
+- `melody_player_plug.clap` / `melody_player_plug.vst3`
 - `midi_inverter_plug.clap` / `midi_inverter_plug.vst3`
 
 ## Building
@@ -98,10 +98,10 @@ Bundled plugins will be in `target/bundled/`:
 
 ```bash
 # Build both plugins (release mode)
-cargo build --release --package ordiseq_plug --package midi_inverter_plug
+cargo build --release --package melody_player_plug --package midi_inverter_plug
 
 # Bundle for distribution
-cargo run --package xtask --release -- bundle ordiseq_plug --release
+cargo run --package xtask --release -- bundle melody_player_plug --release
 cargo run --package xtask --release -- bundle midi_inverter_plug --release
 
 # Or use the just commands
