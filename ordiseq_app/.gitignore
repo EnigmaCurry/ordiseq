@@ -7,3 +7,6 @@ frontend/dist/
 
 # Tauri generated files
 gen/
+
+# Generated icons (built by gen_icons.mjs)
+icons/

@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "tech.rymcg.ordiseq",
   "build": {
-    "beforeDevCommand": "cd frontend && npm run dev",
+    "beforeDevCommand": "node gen_icons.mjs && cd frontend && npm run dev",
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "cd frontend && npm run build",
+    "beforeBuildCommand": "node gen_icons.mjs && cd frontend && npm run build",
     "frontendDist": "frontend/dist"
   },
   "app": {
