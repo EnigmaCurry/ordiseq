@@ -237,7 +237,7 @@
   {:else}
     <div class="client-list">
       {#each $clients as client (client.id)}
-        <div class="client-card">
+        <div class="client-card" onwheel={(e) => e.preventDefault()}>
           <div class="client-header">
             {#if editingId === client.id}
               <input
