@@ -18,6 +18,7 @@ export interface ShaderSettings {
 
 const STORE_FILE = "settings.json";
 const SHADER_KEY = "shader";
+const ALWAYS_ON_TOP_KEY = "alwaysOnTop";
 
 const defaultSettings: ShaderSettings = {
   selectedShader: "retrogrid",
@@ -70,4 +71,25 @@ export async function saveShaderSettings(settings: ShaderSettings): Promise<void
 
 export function getDefaultSettings(): ShaderSettings {
   return { ...defaultSettings, uniforms: { ...defaultSettings.uniforms } };
+}
+
+export async function loadAlwaysOnTop(): Promise<boolean> {
+  try {
+    const s = await getStore();
+    const saved = await s.get<boolean>(ALWAYS_ON_TOP_KEY);
+    return saved ?? false;
+  } catch (e) {
+    console.warn("Failed to load always-on-top setting:", e);
+    return false;
+  }
+}
+
+export async function saveAlwaysOnTop(value: boolean): Promise<void> {
+  try {
+    const s = await getStore();
+    await s.set(ALWAYS_ON_TOP_KEY, value);
+    await s.save();
+  } catch (e) {
+    console.warn("Failed to save always-on-top setting:", e);
+  }
 }

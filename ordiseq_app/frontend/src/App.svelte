@@ -3,6 +3,7 @@
   import MainPage from "./lib/pages/MainPage.svelte";
   import TestPage from "./lib/pages/TestPage.svelte";
   import SettingsPage from "./lib/pages/SettingsPage.svelte";
+  import ClientsPage from "./lib/pages/ClientsPage.svelte";
   import { currentPage } from "./lib/router";
   import { setUniforms, shaderConfig } from "./lib/shaderStore";
   import { get } from "svelte/store";
@@ -18,15 +19,15 @@
     // Only act on actual page changes
     if (page === previousPage) return;
 
-    if (page === "main") {
+    if (page === "graphics") {
       // Save current overlay and disable it (use get() to avoid reactive dependency)
       const currentOverlay = get(shaderConfig).uniforms.u_overlay as number;
       if (currentOverlay > 0) {
         userOverlay = currentOverlay;
       }
       setUniforms({ u_overlay: 0 });
-    } else if (previousPage === "main") {
-      // Only restore when leaving main page
+    } else if (previousPage === "graphics") {
+      // Only restore when leaving graphics page
       setUniforms({ u_overlay: userOverlay });
     }
 
@@ -37,12 +38,14 @@
 <Navigation />
 
 <main>
-  {#if $currentPage === "main"}
+  {#if $currentPage === "graphics"}
     <MainPage />
   {:else if $currentPage === "test"}
     <TestPage />
   {:else if $currentPage === "settings"}
     <SettingsPage />
+  {:else if $currentPage === "clients"}
+    <ClientsPage />
   {/if}
 </main>
 

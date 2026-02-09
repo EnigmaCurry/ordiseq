@@ -4,11 +4,19 @@ import ShaderBackground from "./lib/ShaderBackground.svelte";
 import { mount } from "svelte";
 import { themeColors, applyTheme } from "./lib/themeStore";
 import { initializeSettings } from "./lib/shaderStore";
+import { loadAlwaysOnTop } from "./lib/settingsStore";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 // Initialize app after loading settings
 async function init() {
   // Load persisted settings first
   await initializeSettings();
+
+  // Restore always-on-top setting
+  const alwaysOnTop = await loadAlwaysOnTop();
+  if (alwaysOnTop) {
+    await getCurrentWindow().setAlwaysOnTop(true);
+  }
 
   // Create shader background container
   const shaderContainer = document.createElement("div");

@@ -54,6 +54,7 @@ build-plugins *args:
     just build-plugin ordiseq_euclid_plug
     just build-plugin ordiseq_topograph_plug
     just build-plugin ordiseq_step_plug
+    just build-plugin ordiseq_plug
     @echo "All plugins built and bundled!"
     @ls -lh target/bundled/
 
@@ -89,11 +90,13 @@ _package-plugins-only:
     cp target/bundled/ordiseq_euclid_plug.clap "${PACKAGE_DIR}/CLAP/"
     cp target/bundled/ordiseq_topograph_plug.clap "${PACKAGE_DIR}/CLAP/"
     cp target/bundled/ordiseq_step_plug.clap "${PACKAGE_DIR}/CLAP/"
+    cp target/bundled/ordiseq_plug.clap "${PACKAGE_DIR}/CLAP/"
     cp -r target/bundled/melody_player_plug.vst3 "${PACKAGE_DIR}/VST3/"
     cp -r target/bundled/midi_inverter_plug.vst3 "${PACKAGE_DIR}/VST3/"
     cp -r target/bundled/ordiseq_euclid_plug.vst3 "${PACKAGE_DIR}/VST3/"
     cp -r target/bundled/ordiseq_topograph_plug.vst3 "${PACKAGE_DIR}/VST3/"
     cp -r target/bundled/ordiseq_step_plug.vst3 "${PACKAGE_DIR}/VST3/"
+    cp -r target/bundled/ordiseq_plug.vst3 "${PACKAGE_DIR}/VST3/"
 
     # Copy documentation
     echo "Copying documentation..."

@@ -1,5 +1,21 @@
 <script lang="ts">
   import { setShader, setUniforms, exampleShaders, shaderConfig, animationConfig, setAnimationEnabled, setAnimationBase, persistSettings, selectedShaderName } from "../shaderStore";
+  import { loadAlwaysOnTop, saveAlwaysOnTop } from "../settingsStore";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
+
+  let alwaysOnTop = $state(false);
+
+  // Load persisted always-on-top setting
+  loadAlwaysOnTop().then((value) => {
+    alwaysOnTop = value;
+  });
+
+  async function updateAlwaysOnTop(event: Event) {
+    const input = event.target as HTMLInputElement;
+    alwaysOnTop = input.checked;
+    await getCurrentWindow().setAlwaysOnTop(alwaysOnTop);
+    await saveAlwaysOnTop(alwaysOnTop);
+  }
 
   const shaderOptions = [
     { value: "retrogrid", label: "Retro Grid" },
@@ -163,6 +179,22 @@
 <div class="page">
   <h1>Settings</h1>
   <p class="subtitle">Application Configuration</p>
+
+  <div class="settings-section">
+    <h2>Window</h2>
+
+    <div class="field checkbox-field">
+      <label for="alwaysOnTop">
+        <input
+          type="checkbox"
+          id="alwaysOnTop"
+          checked={alwaysOnTop}
+          onchange={updateAlwaysOnTop}
+        />
+        Always on Top
+      </label>
+    </div>
+  </div>
 
   <div class="settings-section">
     <h2>Appearance</h2>
@@ -335,6 +367,11 @@
     border: 1px solid rgba(var(--color-3), 0.5);
     border-radius: 8px;
     padding: 1.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .settings-section:last-child {
+    margin-bottom: 0;
   }
 
   h2 {

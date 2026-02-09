@@ -1,0 +1,21 @@
+[package]
+name = "ordiseq_plug"
+version = "0.1.0"
+edition = "2024"
+repository = "https://github.com/EnigmaCurry/ordiseq"
+homepage = "https://github.com/EnigmaCurry/ordiseq"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs"] }
+nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1"
+tungstenite = "0.24"
+crossbeam-channel = "0.5"
+rand = "0.8"
+xtask = { path = "../../xtask" }
