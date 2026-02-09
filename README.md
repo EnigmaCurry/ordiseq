@@ -87,6 +87,10 @@ just run --example test
    ([ValleyRackFree](https://github.com/ValleyAudio/ValleyRackFree))
    as reference.
 
+ * [ordiseq_step_plug](plugins/ordiseq_step_plug) is a 4-track,
+   16-step sequencer with an egui GUI. MIDI drag-and-drop export is
+   currently only supported on Windows.
+
  * Many other libraries from the Rust ecosystem have been used as
    listed in each crate's Cargo.toml. Thank you to all the library
    authors and supporters.
