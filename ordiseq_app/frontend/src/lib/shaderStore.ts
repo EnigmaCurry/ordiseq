@@ -1,9 +1,8 @@
 import { writable, get } from "svelte/store";
-import defaultFragmentShader from "./shaders/default.frag.glsl?raw";
 import plasmaShader from "./shaders/plasma.frag.glsl?raw";
-import wavesShader from "./shaders/waves.frag.glsl?raw";
 import noiseShader from "./shaders/noise.frag.glsl?raw";
 import retrogridShader from "./shaders/retrogrid.frag.glsl?raw";
+import matrixShader from "./shaders/matrix.frag.glsl?raw";
 import { loadShaderSettings, saveShaderSettings, type ShaderSettings } from "./settingsStore";
 
 export interface ShaderConfig {
@@ -20,21 +19,21 @@ export interface AnimationConfig {
 
 // Example shaders loaded from .glsl files
 export const exampleShaders: Record<string, string> = {
-  default: defaultFragmentShader,
   plasma: plasmaShader,
-  waves: wavesShader,
   noise: noiseShader,
   retrogrid: retrogridShader,
+  matrix: matrixShader,
 };
 
 const defaultConfig: ShaderConfig = {
-  fragmentShader: retrogridShader,
+  fragmentShader: plasmaShader,
   uniforms: {
     u_pitch: 0.0,
     u_speed: 0.02,
     u_zoom: 12.0,
     u_fisheye: 0.04,
     u_overlay: 0.9,
+    u_bpm: 120.0,
     u_color1: [1.0, 0.08, 0.58],   // Hot pink
     u_color2: [0.0, 1.0, 0.87],    // Cyan
     u_color3: [0.74, 0.58, 0.98],  // Purple
@@ -178,7 +177,7 @@ function rgbToHex(rgb: number[]): string {
 }
 
 // Track which shader is currently selected by name
-export const selectedShaderName = writable<string>("retrogrid");
+export const selectedShaderName = writable<string>("plasma");
 
 /**
  * Initialize settings from persistent storage
@@ -188,7 +187,7 @@ export async function initializeSettings(): Promise<void> {
     const settings = await loadShaderSettings();
 
     // Apply shader
-    const shader = exampleShaders[settings.selectedShader] || retrogridShader;
+    const shader = exampleShaders[settings.selectedShader] || plasmaShader;
     selectedShaderName.set(settings.selectedShader);
 
     // Apply uniforms with color conversion
@@ -200,6 +199,7 @@ export async function initializeSettings(): Promise<void> {
         u_zoom: settings.uniforms.zoom,
         u_fisheye: settings.uniforms.fisheye,
         u_overlay: settings.uniforms.overlay,
+        u_bpm: 120.0,
         u_color1: hexToRgb(settings.uniforms.color1),
         u_color2: hexToRgb(settings.uniforms.color2),
         u_color3: hexToRgb(settings.uniforms.color3),

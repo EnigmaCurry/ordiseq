@@ -30,14 +30,13 @@
   }
 
   const shaderOptions = [
-    { value: "retrogrid", label: "Retro Grid" },
-    { value: "default", label: "Default" },
     { value: "plasma", label: "Plasma" },
-    { value: "waves", label: "Waves" },
+    { value: "retrogrid", label: "Retro Grid" },
     { value: "noise", label: "Noise" },
+    { value: "matrix", label: "Matrix" },
   ];
 
-  let selectedShader = $state("retrogrid");
+  let selectedShader = $state("plasma");
 
   // Retrogrid settings - display values (animated)
   let pitch = $state(0.0);
@@ -199,31 +198,6 @@
   <p class="subtitle">Application Configuration</p>
 
   <div class="settings-section">
-    <h2>Window</h2>
-
-    <div class="field checkbox-field">
-      <label for="alwaysOnTop">
-        <input
-          type="checkbox"
-          id="alwaysOnTop"
-          checked={alwaysOnTop}
-          onchange={updateAlwaysOnTop}
-        />
-        Always on Top
-      </label>
-    </div>
-
-    <div class="field">
-      <label for="iconShape">Window Icon</label>
-      <select id="iconShape" value={iconShape} onchange={updateIconShape}>
-        {#each iconShapes as option}
-          <option value={option.value}>{option.label}</option>
-        {/each}
-      </select>
-    </div>
-  </div>
-
-  <div class="settings-section">
     <h2>Appearance</h2>
 
     <div class="shader-settings">
@@ -371,6 +345,31 @@
         </div>
       </div>
     {/if}
+  </div>
+
+  <div class="settings-section">
+    <h2>Window</h2>
+
+    <div class="field checkbox-field">
+      <label for="alwaysOnTop">
+        <input
+          type="checkbox"
+          id="alwaysOnTop"
+          checked={alwaysOnTop}
+          onchange={updateAlwaysOnTop}
+        />
+        Always on Top
+      </label>
+    </div>
+
+    <div class="field">
+      <label for="iconShape">Window Icon</label>
+      <select id="iconShape" value={iconShape} onchange={updateIconShape}>
+        {#each iconShapes as option}
+          <option value={option.value}>{option.label}</option>
+        {/each}
+      </select>
+    </div>
   </div>
 </div>
 

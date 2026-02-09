@@ -6,6 +6,7 @@ uniform float u_pitch;    // 0.0 to 360.0 - camera pitch angle in degrees
 uniform float u_speed;    // 0.0 to 2.0 - movement speed
 uniform float u_zoom;     // 0.5 to 2.0 - zoom level (affects central area size)
 uniform float u_fisheye;  // 0.0 to 1.0 - blend between perspective (0) and fisheye (1)
+uniform float u_bpm;      // beats per minute - drives movement speed
 uniform vec3 u_color1;    // Grid color 1
 uniform vec3 u_color2;    // Grid color 2
 uniform vec3 u_color3;    // Grid color 3
@@ -56,8 +57,9 @@ void main() {
       float x = tilted.x * t;
       float z = tilted.z * t;
 
-      // Camera movement
-      z += u_time * u_speed * 5.0;
+      // Camera movement scaled by BPM
+      float tempo = u_bpm / 120.0;
+      z += u_time * u_speed * 5.0 * tempo;
 
       // Grid
       float gridSize = 1.0;
@@ -89,7 +91,7 @@ void main() {
       float grid = min(1.0, hLine + vLine);
 
       // Distance fade
-      float dist = length(vec2(x, z - u_time * u_speed * 5.0));
+      float dist = length(vec2(x, z - u_time * u_speed * 5.0 * tempo));
       float fade = 1.0 - smoothstep(5.0, 30.0, dist);
       grid *= fade;
 

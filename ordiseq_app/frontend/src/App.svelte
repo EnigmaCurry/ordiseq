@@ -6,6 +6,7 @@
   import ClientsPage from "./lib/pages/ClientsPage.svelte";
   import { currentPage } from "./lib/router";
   import { setUniforms, shaderConfig } from "./lib/shaderStore";
+  import { clients } from "./lib/clientsStore";
   import { get } from "svelte/store";
 
   // Store the user's overlay setting
@@ -32,6 +33,15 @@
     }
 
     previousPage = page;
+  });
+
+  // Derive BPM from connected clients and push to shaders
+  $effect(() => {
+    const cl = $clients;
+    const connected = cl.find((c) => c.connected && c.bpm > 0);
+    if (connected) {
+      setUniforms({ u_bpm: connected.bpm });
+    }
   });
 </script>
 

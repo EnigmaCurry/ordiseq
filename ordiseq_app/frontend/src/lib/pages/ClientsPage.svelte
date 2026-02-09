@@ -1,9 +1,6 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
   import {
     clients,
-    startPolling,
-    stopPolling,
     renameClient,
     sendClipToClient,
     euclideanToClip,
@@ -21,9 +18,6 @@
   import { invoke } from "@tauri-apps/api/core";
   import Dial from "../Dial.svelte";
   import MidiWidget from "../MidiWidget.svelte";
-
-  startPolling();
-  onDestroy(stopPolling);
 
   let editingId = $state<number | null>(null);
   let editName = $state("");

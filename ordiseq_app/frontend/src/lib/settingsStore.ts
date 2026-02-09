@@ -24,7 +24,7 @@ const ALWAYS_ON_TOP_KEY = "alwaysOnTop";
 const ICON_SHAPE_KEY = "iconShape";
 
 const defaultSettings: ShaderSettings = {
-  selectedShader: "retrogrid",
+  selectedShader: "plasma",
   uniforms: {
     pitch: 0.0,
     speed: 0.02,

@@ -2,6 +2,10 @@
   import { currentPage, type Page } from "./router";
 
   let menuOpen = $state(false);
+  let idle = $state(false);
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const IDLE_DELAY = 2000;
 
   const pages: { id: Page; label: string }[] = [
     { id: "clients", label: "Clients" },
@@ -9,6 +13,25 @@
     { id: "settings", label: "Settings" },
     { id: "test", label: "Test" },
   ];
+
+  function resetIdle() {
+    idle = false;
+    if (idleTimer) clearTimeout(idleTimer);
+    if ($currentPage === "graphics" && !menuOpen) {
+      idleTimer = setTimeout(() => { idle = true; }, IDLE_DELAY);
+    }
+  }
+
+  // Start/stop idle tracking when page or menu changes
+  $effect(() => {
+    if ($currentPage === "graphics" && !menuOpen) {
+      idleTimer = setTimeout(() => { idle = true; }, IDLE_DELAY);
+    } else {
+      idle = false;
+      if (idleTimer) clearTimeout(idleTimer);
+    }
+    return () => { if (idleTimer) clearTimeout(idleTimer); };
+  });
 
   function navigate(page: Page) {
     currentPage.set(page);
@@ -23,12 +46,13 @@
     if (event.key === "Escape" && menuOpen) {
       menuOpen = false;
     }
+    resetIdle();
   }
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<svelte:window onkeydown={handleKeydown} onmousemove={resetIdle} onmousedown={resetIdle} />
 
-<nav class="navigation">
+<nav class="navigation" class:idle>
   <button class="hamburger" onclick={toggleMenu} aria-label="Toggle menu">
     <span class="hamburger-line" class:open={menuOpen}></span>
     <span class="hamburger-line" class:open={menuOpen}></span>
@@ -58,6 +82,13 @@
     top: 1rem;
     left: 1rem;
     z-index: 100;
+    opacity: 1;
+    transition: opacity 0.5s ease;
+  }
+
+  .navigation.idle {
+    opacity: 0;
+    pointer-events: none;
   }
 
   .hamburger {

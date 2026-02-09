@@ -2,6 +2,11 @@
 precision highp float;
 uniform float u_time;
 uniform vec2 u_resolution;
+uniform float u_bpm;
+uniform vec3 u_color1;
+uniform vec3 u_color2;
+uniform vec3 u_color3;
+uniform vec3 u_color4;
 out vec4 fragColor;
 
 float hash(vec2 p) {
@@ -21,15 +26,20 @@ float noise(vec2 p) {
 
 void main() {
   vec2 uv = gl_FragCoord.xy / u_resolution;
-  float t = u_time * 0.2;
+  float tempo = u_bpm / 120.0;
+  float t = u_time * 0.2 * tempo;
 
   float n = noise(uv * 5.0 + t) * 0.5;
   n += noise(uv * 10.0 - t * 0.5) * 0.25;
   n += noise(uv * 20.0 + t * 0.3) * 0.125;
 
-  vec3 base = vec3(0.157, 0.165, 0.212);
-  vec3 accent = vec3(0.267, 0.278, 0.353);
+  // Cycle through 4 colors based on noise value
+  float idx = n * 4.0;
+  vec3 col;
+  if (idx < 1.0) col = mix(u_color1, u_color2, idx);
+  else if (idx < 2.0) col = mix(u_color2, u_color3, idx - 1.0);
+  else if (idx < 3.0) col = mix(u_color3, u_color4, idx - 2.0);
+  else col = mix(u_color4, u_color1, idx - 3.0);
 
-  vec3 color = mix(base, accent, n * 0.6);
-  fragColor = vec4(color, 1.0);
+  fragColor = vec4(col * 0.4, 1.0);
 }
