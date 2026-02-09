@@ -48,8 +48,8 @@ export const iconShapes: { value: IconShape; label: string }[] = [
 
 // --- helpers ---
 
-function setupCtx(ctx: CanvasRenderingContext2D, size: number) {
-  ctx.strokeStyle = "white";
+function setupCtx(ctx: CanvasRenderingContext2D, size: number, color: string) {
+  ctx.strokeStyle = color;
   ctx.lineWidth = Math.max(1, size * 0.032);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
@@ -407,10 +407,18 @@ function mulberry32(seed: number) {
   };
 }
 
-function renderHacker(ctx: CanvasRenderingContext2D, size: number) {
+function hexToRgb(hex: string): [number, number, number] {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return m
+    ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)]
+    : [255, 255, 255];
+}
+
+function renderHacker(ctx: CanvasRenderingContext2D, size: number, color: string) {
   const rand = mulberry32(42);
   const cols = Math.floor(size / 3);
   const dotSize = size / cols;
+  const [cr, cg, cb] = hexToRgb(color);
 
   for (let col = 0; col < cols; col++) {
     const x = (col + 0.5) * dotSize;
@@ -423,7 +431,7 @@ function renderHacker(ctx: CanvasRenderingContext2D, size: number) {
 
       const y = (row + 0.5) * dotSize;
       const alpha = dist === 0 ? 1.0 : Math.max(0.15, 1.0 - dist / streamLen);
-      ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+      ctx.fillStyle = `rgba(${cr},${cg},${cb},${alpha})`;
       const r = dotSize * 0.35;
       ctx.fillRect(x - r, y - r, r * 2, r * 2);
     }
@@ -432,13 +440,13 @@ function renderHacker(ctx: CanvasRenderingContext2D, size: number) {
 
 // --- main render ---
 
-function renderIcon(shape: IconShape, size: number): ImageData {
+function renderIcon(shape: IconShape, size: number, color: string): ImageData {
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext("2d")!;
 
   if (shape === "hacker") {
-    renderHacker(ctx, size);
+    renderHacker(ctx, size, color);
     return ctx.getImageData(0, 0, size, size);
   }
 
@@ -447,7 +455,7 @@ function renderIcon(shape: IconShape, size: number): ImageData {
   const cy = size / 2;
   const r = size / 2 - padding;
 
-  setupCtx(ctx, size);
+  setupCtx(ctx, size, color);
 
   if (shape === "circle") {
     ctx.beginPath();
@@ -488,9 +496,9 @@ function renderIcon(shape: IconShape, size: number): ImageData {
   return ctx.getImageData(0, 0, size, size);
 }
 
-export async function applyIcon(shape: IconShape): Promise<void> {
+export async function applyIcon(shape: IconShape, color = "#ffffff"): Promise<void> {
   const size = 32;
-  const imageData = renderIcon(shape, size);
+  const imageData = renderIcon(shape, size, color);
   const rgba = new Uint8Array(imageData.data.buffer);
   const icon = await Image.new(rgba, size, size);
   await getCurrentWindow().setIcon(icon);

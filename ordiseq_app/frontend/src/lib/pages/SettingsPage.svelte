@@ -25,7 +25,7 @@
   async function updateIconShape(event: Event) {
     const select = event.target as HTMLSelectElement;
     iconShape = select.value as IconShape;
-    await applyIcon(iconShape);
+    await applyIcon(iconShape, color1);
     await saveIconShape(iconShape);
   }
 
@@ -186,7 +186,7 @@
     const input = event.target as HTMLInputElement;
     const hex = input.value;
     const rgb = hexToRgb(hex);
-    if (colorNum === 1) { color1 = hex; setUniforms({ u_color1: rgb }); }
+    if (colorNum === 1) { color1 = hex; setUniforms({ u_color1: rgb }); applyIcon(iconShape, color1); }
     else if (colorNum === 2) { color2 = hex; setUniforms({ u_color2: rgb }); }
     else if (colorNum === 3) { color3 = hex; setUniforms({ u_color3: rgb }); }
     else { color4 = hex; setUniforms({ u_color4: rgb }); }

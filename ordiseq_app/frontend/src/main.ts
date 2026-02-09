@@ -4,7 +4,7 @@ import ShaderBackground from "./lib/ShaderBackground.svelte";
 import { mount } from "svelte";
 import { themeColors, applyTheme } from "./lib/themeStore";
 import { initializeSettings } from "./lib/shaderStore";
-import { loadAlwaysOnTop, loadIconShape } from "./lib/settingsStore";
+import { loadAlwaysOnTop, loadIconShape, loadShaderSettings } from "./lib/settingsStore";
 import { applyIcon } from "./lib/iconGenerator";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
@@ -19,9 +19,10 @@ async function init() {
     await getCurrentWindow().setAlwaysOnTop(true);
   }
 
-  // Restore window icon shape
+  // Restore window icon shape with primary color
   const iconShape = await loadIconShape();
-  await applyIcon(iconShape);
+  const shaderSettings = await loadShaderSettings();
+  await applyIcon(iconShape, shaderSettings.uniforms.color1);
 
   // Create shader background container
   const shaderContainer = document.createElement("div");
