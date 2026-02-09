@@ -127,10 +127,16 @@
       row.length = Math.max(1, Math.min(32, value));
       row.hits = Math.min(row.hits, row.length);
       row.rotation = Math.min(row.rotation, row.length - 1);
+      row.accents = Math.min(row.accents, row.hits);
     } else if (field === "hits") {
       row.hits = Math.max(0, Math.min(row.length, value));
+      row.accents = Math.min(row.accents, row.hits);
     } else if (field === "rotation") {
       row.rotation = Math.max(0, Math.min(row.length - 1, value));
+    } else if (field === "accents") {
+      row.accents = Math.max(0, Math.min(row.hits, value));
+    } else if (field === "velocity") {
+      row.velocity = Math.max(0, Math.min(127, value));
     }
 
     const newRows = [...rows];
@@ -163,11 +169,27 @@
     }
   }
 
-  function getPattern(row: EuclidRow): boolean[] {
-    const pat = bjorklund(row.length, row.hits);
-    if (row.rotation === 0) return pat;
-    const r = ((row.rotation % pat.length) + pat.length) % pat.length;
-    return [...pat.slice(r), ...pat.slice(0, r)];
+  /** Returns per-step info: "off" | "hit" | "accent".
+   *  Accents are applied before rotation so they stay tied to specific hits. */
+  function getPattern(row: EuclidRow): ("off" | "hit" | "accent")[] {
+    const hitPat = bjorklund(row.length, row.hits);
+    const accentPat = row.accents > 0 ? bjorklund(row.hits, row.accents) : [];
+    // Build combined pattern before rotation
+    const combined: ("off" | "hit" | "accent")[] = [];
+    let hitIndex = 0;
+    for (let s = 0; s < hitPat.length; s++) {
+      if (!hitPat[s]) {
+        combined.push("off");
+      } else {
+        const isAccent = accentPat.length > 0 && accentPat[hitIndex % accentPat.length];
+        combined.push(isAccent ? "accent" : "hit");
+        hitIndex++;
+      }
+    }
+    // Rotate the combined result
+    if (row.rotation === 0 || combined.length === 0) return combined;
+    const r = ((row.rotation % combined.length) + combined.length) % combined.length;
+    return [...combined.slice(r), ...combined.slice(0, r)];
   }
 </script>
 
@@ -229,8 +251,9 @@
                   <span class="euclid-col note-col">Note</span>
                   <span class="euclid-col">Length</span>
                   <span class="euclid-col">Hits</span>
+                  <span class="euclid-col">Accents</span>
                   <span class="euclid-col">Rotation</span>
-                  <span class="euclid-col pattern-col">Pattern</span>
+                  <span class="euclid-col">Velocity</span>
                   <span class="euclid-col btn-col"></span>
                 </div>
 
@@ -250,19 +273,27 @@
                         onchange={(v) => updateRow(client.id, i, "hits", v)} />
                     </span>
                     <span class="euclid-col dial-col">
+                      <Dial value={row.accents} min={0} max={row.hits}
+                        onchange={(v) => updateRow(client.id, i, "accents", v)} />
+                    </span>
+                    <span class="euclid-col dial-col">
                       <Dial value={row.rotation} min={0} max={Math.max(0, row.length - 1)}
                         onchange={(v) => updateRow(client.id, i, "rotation", v)} />
                     </span>
-                    <span class="euclid-col pattern-col pattern-display">
-                      {#each getPattern(row) as active}
-                        <span class="step-dot" class:active></span>
-                      {/each}
+                    <span class="euclid-col dial-col">
+                      <Dial value={row.velocity} min={0} max={127}
+                        onchange={(v) => updateRow(client.id, i, "velocity", v)} />
                     </span>
                     <span class="euclid-col btn-col">
                       {#if getRows(client.id).length > 1}
                         <button class="remove-btn" onclick={() => removeRow(client.id, i)}>×</button>
                       {/if}
                     </span>
+                  </div>
+                  <div class="pattern-row">
+                    {#each getPattern(row) as step}
+                      <span class="step-dot" class:active={step !== "off"} class:accent={step === "accent"}></span>
+                    {/each}
                   </div>
                 {/each}
 
@@ -434,11 +465,6 @@
     text-align: center;
   }
 
-  .pattern-col {
-    width: 78px;
-    text-align: left;
-  }
-
   .btn-col {
     width: 28px;
   }
@@ -448,14 +474,12 @@
     justify-content: center;
   }
 
-  .pattern-display {
+  .pattern-row {
     display: flex;
     gap: 2px;
     align-items: center;
     flex-wrap: wrap;
-    /* 8 dots per row: 8 * 8px + 7 * 2px = 78px */
-    width: 78px;
-    flex-shrink: 0;
+    padding: 0 0 0.3rem 0;
   }
 
   .step-dot {
@@ -468,6 +492,10 @@
 
   .step-dot.active {
     background-color: rgb(var(--color-2));
+  }
+
+  .step-dot.accent {
+    background-color: rgb(255, 220, 80);
   }
 
   .remove-btn {

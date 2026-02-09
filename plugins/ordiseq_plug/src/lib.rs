@@ -42,9 +42,6 @@ struct OrdiseqPlugParams {
     #[persist = "plugin-state"]
     plugin_state: Arc<RwLock<PluginPersistState>>,
 
-    #[id = "velocity_scale"]
-    velocity_scale: FloatParam,
-
     #[id = "gate_scale"]
     gate_scale: FloatParam,
 }
@@ -54,14 +51,6 @@ impl Default for OrdiseqPlugParams {
         Self {
             editor_state: EguiState::from_size(400, 280),
             plugin_state: Arc::new(RwLock::new(PluginPersistState::default())),
-            velocity_scale: FloatParam::new(
-                "Velocity",
-                0.8,
-                FloatRange::Linear { min: 0.0, max: 1.0 },
-            )
-            .with_unit(" %")
-            .with_value_to_string(formatters::v2s_f32_percentage(0))
-            .with_string_to_value(formatters::s2v_f32_percentage()),
             gate_scale: FloatParam::new(
                 "Gate",
                 1.0,
@@ -105,6 +94,7 @@ struct OrdiseqPlug {
     // Throttling transport reports
     last_reported_bpm: f64,
     last_reported_playing: bool,
+    was_connected: bool,
 }
 
 impl Default for OrdiseqPlug {
@@ -125,6 +115,7 @@ impl Default for OrdiseqPlug {
             needs_host_notify: Arc::new(AtomicBool::new(false)),
             last_reported_bpm: 0.0,
             last_reported_playing: false,
+            was_connected: false,
         }
     }
 }
@@ -214,9 +205,16 @@ impl OrdiseqPlug {
         }
     }
 
-    /// Report transport state to app if changed.
+    /// Report transport state to app if changed, or on fresh connection.
     fn report_transport(&mut self, bpm: f64, playing: bool) {
-        if (bpm - self.last_reported_bpm).abs() > 0.01 || playing != self.last_reported_playing {
+        let connected = self.connection_status.load(Ordering::Relaxed) == STATUS_CONNECTED;
+        let just_connected = connected && !self.was_connected;
+        self.was_connected = connected;
+
+        if just_connected
+            || (bpm - self.last_reported_bpm).abs() > 0.01
+            || playing != self.last_reported_playing
+        {
             self.last_reported_bpm = bpm;
             self.last_reported_playing = playing;
             if let Some(tx) = &self.ws_outbox {
@@ -289,10 +287,10 @@ impl Plugin for OrdiseqPlug {
             move |egui_ctx, setter, _state| {
                 // Notify host that persist state changed so the DAW re-saves
                 if needs_host_notify.swap(false, Ordering::Relaxed) {
-                    let v = params.velocity_scale.value();
-                    setter.begin_set_parameter(&params.velocity_scale);
-                    setter.set_parameter(&params.velocity_scale, v);
-                    setter.end_set_parameter(&params.velocity_scale);
+                    let v = params.gate_scale.value();
+                    setter.begin_set_parameter(&params.gate_scale);
+                    setter.set_parameter(&params.gate_scale, v);
+                    setter.end_set_parameter(&params.gate_scale);
                 }
 
                 egui::CentralPanel::default().show(egui_ctx, |ui| {
@@ -368,10 +366,6 @@ impl Plugin for OrdiseqPlug {
 
                     // Parameter sliders
                     ui.add(widgets::ParamSlider::for_param(
-                        &params.velocity_scale,
-                        setter,
-                    ));
-                    ui.add(widgets::ParamSlider::for_param(
                         &params.gate_scale,
                         setter,
                     ));
@@ -419,7 +413,6 @@ impl Plugin for OrdiseqPlug {
             _ => return ProcessStatus::Normal,
         };
 
-        let velocity_scale = self.params.velocity_scale.value();
         let gate_scale = self.params.gate_scale.value();
         let sample_rate = self.sample_rate as f64;
         let beats_per_second = bpm / 60.0;
@@ -451,7 +444,7 @@ impl Plugin for OrdiseqPlug {
                     let sample_offset_in_chunk =
                         ((note_start - chunk_start_beats) * samples_per_beat) as u32;
                     let timing = (processed as u32) + sample_offset_in_chunk;
-                    let vel = (clip_note.velocity * velocity_scale).clamp(0.0, 1.0);
+                    let vel = clip_note.velocity.clamp(0.0, 1.0);
 
                     context.send_event(NoteEvent::NoteOn {
                         timing,

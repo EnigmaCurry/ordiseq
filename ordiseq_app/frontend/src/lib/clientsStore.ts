@@ -30,6 +30,7 @@ export interface EuclidRow {
   hits: number;
   rotation: number;
   accents: number;   // 0..hits, euclidean accent count
+  velocity: number;  // base velocity 0-127
 }
 
 export type SequencerType = "none" | "euclidean";
@@ -121,7 +122,6 @@ function rotatePattern(pattern: boolean[], rotation: number): boolean[] {
 
 const STEP_BEATS = 0.25; // 16th note
 const GATE_RATIO = 0.5;
-const ACCENT_VELOCITY = 1.0;
 
 function gcd(a: number, b: number): number {
   while (b) { [a, b] = [b, a % b]; }
@@ -141,18 +141,39 @@ export function euclideanToClip(rows: EuclidRow[]): MidiClip {
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    const pattern = rotatePattern(bjorklund(row.length, row.hits), row.rotation);
-    const midiNote = row.note;
+    const baseVel = (row.velocity ?? 100) / 127;
+
+    // Apply accents before rotation: assign accent to each hit, then rotate the combined pattern
+    const hitPattern = bjorklund(row.length, row.hits);
+    const accentPattern = row.accents > 0 ? bjorklund(row.hits, row.accents) : [];
+    // Build per-step accent map on unrotated pattern
+    const stepAccent: boolean[] = [];
+    let hitIdx = 0;
+    for (let s = 0; s < row.length; s++) {
+      if (hitPattern[s]) {
+        stepAccent.push(accentPattern.length > 0 && accentPattern[hitIdx % accentPattern.length]);
+        hitIdx++;
+      } else {
+        stepAccent.push(false);
+      }
+    }
+    // Rotate both pattern and accent map together
+    const pattern = rotatePattern(hitPattern, row.rotation);
+    const rotatedAccent = rotatePattern(stepAccent, row.rotation);
 
     for (let step = 0; step < totalSteps; step++) {
-      if (pattern[step % row.length]) {
-        notes.push({
-          note: midiNote,
-          channel: 0,
-          velocity: DEFAULT_VELOCITY,
-          start_beats: step * STEP_BEATS,
-          duration_beats: STEP_BEATS * GATE_RATIO,
-        });
+      const si = step % row.length;
+      if (pattern[si]) {
+        const vel = rotatedAccent[si] ? 1.0 : baseVel;
+        if (vel > 0) {
+          notes.push({
+            note: row.note,
+            channel: 0,
+            velocity: vel,
+            start_beats: step * STEP_BEATS,
+            duration_beats: STEP_BEATS * GATE_RATIO,
+          });
+        }
       }
     }
   }
@@ -165,7 +186,7 @@ export function euclideanToClip(rows: EuclidRow[]): MidiClip {
 }
 
 export function defaultEuclidRow(note: number = 36): EuclidRow {
-  return { note, length: 16, hits: 4, rotation: 0 };
+  return { note, length: 16, hits: 4, rotation: 0, accents: 0, velocity: 100 };
 }
 
 // --- Persistence by client name ---
@@ -194,12 +215,14 @@ export function loadConfigForClient(name: string): StoredConfig | null {
   const all = loadAllConfigs();
   const config = all[name];
   if (!config) return null;
-  // Migrate old rows missing the `note` field
+  // Migrate old rows missing fields
   config.rows = config.rows.map((r, i) => ({
     note: r.note ?? 36 + i,
     length: r.length,
     hits: r.hits,
     rotation: r.rotation,
+    accents: r.accents ?? 0,
+    velocity: r.velocity ?? 100,
   }));
   return config;
 }
