@@ -15,7 +15,7 @@
     type SequencerType,
     type EuclidRow,
   } from "../clientsStore";
-  import { syncState, beatPosition } from "../transportStore";
+  import { syncState, beatPosition, transportPlaying } from "../transportStore";
   import type { MidiInfo } from "../types";
   import { invoke } from "@tauri-apps/api/core";
   import Dial from "../Dial.svelte";
@@ -226,6 +226,11 @@
     sendPlayModeToClient(clientId, pgm, mode === "note_trigger");
   }
 
+  /** Current step index for a row given the beat position (16th note resolution). */
+  function getCurrentStep(row: EuclidRow, beat: number): number {
+    return Math.floor((beat / 0.25) % row.length);
+  }
+
   /** Returns per-step info: "off" | "hit" | "accent".
    *  Accents are applied before rotation so they stay tied to specific hits. */
   function getPattern(row: EuclidRow): ("off" | "hit" | "accent")[] {
@@ -366,8 +371,8 @@
                     </span>
                   </div>
                   <div class="pattern-row" class:single-step={getPattern(row).length === 1}>
-                    {#each getPattern(row) as step}
-                      <span class="step-dot" class:active={step !== "off"} class:accent={step === "accent"}></span>
+                    {#each getPattern(row) as step, stepIdx}
+                      <span class="step-dot" class:active={step !== "off"} class:accent={step === "accent"} class:current={$transportPlaying && stepIdx === getCurrentStep(row, $beatPosition)}></span>
                     {/each}
                   </div>
                 {/each}
@@ -620,6 +625,11 @@
 
   .step-dot.accent {
     background-color: rgb(255, 220, 80);
+  }
+
+  .step-dot.current {
+    background-color: rgb(var(--color-3));
+    box-shadow: 0 0 6px rgb(var(--color-3));
   }
 
   .remove-btn {
