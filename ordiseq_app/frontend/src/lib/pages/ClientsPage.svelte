@@ -33,6 +33,9 @@
   let euclideanRows = $state<Record<number, EuclidRow[]>>({});
   let midiInfos = $state<Record<number, MidiInfo>>({});
 
+  // Per-client edit program (1-16), controls which program slot the sequencer edits
+  let editPrograms = $state<Record<number, number>>({});
+
   // Track which client IDs have been initialized from storage
   let initializedIds = new Set<number>();
 
@@ -44,7 +47,8 @@
     for (const client of $clients) {
       if (!initializedIds.has(client.id)) {
         initializedIds.add(client.id);
-        const stored = loadConfigForClient(client.name);
+        const pgm = editPrograms[client.id] ?? 1;
+        const stored = loadConfigForClient(client.name, pgm);
         if (stored) {
           sequencerTypes[client.id] = stored.type;
           euclideanRows[client.id] = stored.rows;
@@ -85,20 +89,49 @@
     return $clients.find((c) => c.id === clientId)?.name ?? "";
   }
 
+  function getEditProgram(clientId: number): number {
+    return editPrograms[clientId] ?? 1;
+  }
+
+  function setEditProgram(clientId: number, pgm: number) {
+    const oldPgm = getEditProgram(clientId);
+    if (pgm === oldPgm) return;
+    // Save current config for old program
+    persistConfig(clientId);
+    // Switch to new program
+    editPrograms[clientId] = pgm;
+    // Load config for new program
+    const name = clientName(clientId);
+    const stored = name ? loadConfigForClient(name, pgm) : null;
+    if (stored) {
+      sequencerTypes[clientId] = stored.type;
+      euclideanRows[clientId] = stored.rows;
+      midiInfos[clientId] = undefined as any;
+      if (stored.type === "euclidean" && stored.rows.length > 0) {
+        syncToClient(clientId);
+      }
+    } else {
+      sequencerTypes[clientId] = "none";
+      euclideanRows[clientId] = [];
+      midiInfos[clientId] = undefined as any;
+    }
+  }
+
   function getSequencerType(clientId: number): SequencerType {
     return sequencerTypes[clientId] ?? "none";
   }
 
   function setSequencerType(clientId: number, type: SequencerType) {
     sequencerTypes[clientId] = type;
-    if (type === "euclidean" && !euclideanRows[clientId]) {
+    if (type === "euclidean" && (!euclideanRows[clientId] || euclideanRows[clientId].length === 0)) {
       euclideanRows[clientId] = [defaultEuclidRow()];
     }
     persistConfig(clientId);
     if (type === "euclidean") {
       syncToClient(clientId);
     } else if (type === "none") {
-      sendClipToClient(clientId, { name: "Empty", length_beats: 1, notes: [] });
+      const pgm = getEditProgram(clientId) - 1;
+      sendClipToClient(clientId, { name: "Empty", length_beats: 1, notes: [] }, pgm);
     }
   }
 
@@ -157,7 +190,8 @@
   function persistConfig(clientId: number) {
     const name = clientName(clientId);
     if (name) {
-      saveConfigForClient(name, sequencerTypes[clientId] ?? "none", euclideanRows[clientId] ?? []);
+      const pgm = getEditProgram(clientId);
+      saveConfigForClient(name, sequencerTypes[clientId] ?? "none", euclideanRows[clientId] ?? [], pgm);
     }
   }
 
@@ -167,7 +201,8 @@
     persistConfig(clientId);
     try {
       const clip = euclideanToClip(rows);
-      await sendClipToClient(clientId, clip);
+      const pgm = getEditProgram(clientId) - 1; // 0-based for protocol
+      await sendClipToClient(clientId, clip, pgm);
       const result = await invoke<MidiInfo>("clip_to_midi_file", { clip });
       midiInfos[clientId] = result;
     } catch (e) {
@@ -236,19 +271,29 @@
                 {client.playing ? "Playing" : "Stopped"}
               </span>
             </div>
+            <div class="info-row">
+              <span class="label">Program:</span>
+              <span class="value">{client.program + 1}</span>
+            </div>
           </div>
 
           <div class="sequencer-section">
             <div class="seq-select-row">
-              <span class="label">Sequencer:</span>
-              <select
-                class="seq-select"
-                value={getSequencerType(client.id)}
-                onchange={(e) => setSequencerType(client.id, (e.target as HTMLSelectElement).value as SequencerType)}
-              >
-                <option value="none">None</option>
-                <option value="euclidean">Euclidean</option>
-              </select>
+              <Dial value={getEditProgram(client.id)} min={1} max={16}
+                label="Program"
+                onchange={(v) => setEditProgram(client.id, v)} />
+              <div class="seq-select-wrapper">
+                <select
+                  class="seq-select"
+                  value={getSequencerType(client.id)}
+                  onchange={(e) => setSequencerType(client.id, (e.target as HTMLSelectElement).value as SequencerType)}
+                >
+                  <option value="none">None</option>
+                  <option value="euclidean">Euclidean</option>
+                </select>
+                <span class="seq-select-spacer"></span>
+                <span class="seq-select-label">Sequencer</span>
+              </div>
             </div>
 
             {#if getSequencerType(client.id) === "euclidean"}
@@ -426,9 +471,15 @@
 
   .seq-select-row {
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     gap: 0.5rem;
     margin-bottom: 0.75rem;
+  }
+
+  .seq-select-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
   }
 
   .seq-select {
@@ -439,6 +490,19 @@
     padding: 0.3rem 0.5rem;
     font-size: 0.85rem;
     outline: none;
+    height: 40px;
+  }
+
+  .seq-select-spacer {
+    height: 0.75rem;
+    margin-top: -4px;
+  }
+
+  .seq-select-label {
+    font-size: 0.6rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
 
   /* Euclidean panel */

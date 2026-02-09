@@ -18,6 +18,7 @@ pub struct ClientInfo {
     pub bpm: f32,
     pub playing: bool,
     pub connected: bool,
+    pub program: u8,
 }
 
 struct ClientState {
@@ -107,6 +108,7 @@ impl WsServer {
                         bpm: 0.0,
                         playing: false,
                         connected: true,
+                        program: 0,
                     },
                     sender: out_tx,
                 },
@@ -145,10 +147,11 @@ impl WsServer {
                                     eprintln!("WsServer: client {client_id} registered as \"{}\"", client.info.name);
                                 }
                             }
-                            PluginMessage::Transport { bpm, playing } => {
+                            PluginMessage::Transport { bpm, playing, program } => {
                                 if let Some(client) = map.get_mut(&client_id) {
                                     client.info.bpm = bpm;
                                     client.info.playing = playing;
+                                    client.info.program = program;
                                 }
                             }
                             PluginMessage::ClipAck { clip_id } => {
@@ -236,12 +239,13 @@ impl WsServer {
         client_id: ClientId,
         clip_id: String,
         clip: MidiClip,
+        program: u8,
     ) -> Result<(), String> {
         let map = self.clients.read().unwrap();
         let client = map
             .get(&client_id)
             .ok_or_else(|| format!("Client {client_id} not found"))?;
-        let msg = AppMessage::Clip { clip_id, clip };
+        let msg = AppMessage::Clip { clip_id, clip, program };
         let json = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
         client
             .sender

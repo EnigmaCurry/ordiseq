@@ -8,6 +8,7 @@ export interface ClientInfo {
   bpm: number;
   playing: boolean;
   connected: boolean;
+  program: number;
 }
 
 export interface MidiClip {
@@ -75,8 +76,8 @@ async function fetchClients() {
   }
 }
 
-export async function sendClipToClient(clientId: number, clip: MidiClip) {
-  await invoke("send_clip_to_client", { clientId, clip });
+export async function sendClipToClient(clientId: number, clip: MidiClip, program: number = 0) {
+  await invoke("send_clip_to_client", { clientId, clip, program });
 }
 
 export async function renameClient(clientId: number, name: string) {
@@ -211,9 +212,21 @@ function saveAllConfigs(configs: Record<string, StoredConfig>) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(configs));
 }
 
-export function loadConfigForClient(name: string): StoredConfig | null {
+function configKey(name: string, program: number): string {
+  return `${name}:P${program}`;
+}
+
+export function loadConfigForClient(name: string, program: number = 1): StoredConfig | null {
   const all = loadAllConfigs();
-  const config = all[name];
+  // Try per-program key first, then migrate from legacy (unkeyed) config
+  let config = all[configKey(name, program)];
+  if (!config && program === 1 && all[name]) {
+    // Migrate legacy config to program 1
+    config = all[name];
+    all[configKey(name, 1)] = config;
+    delete all[name];
+    saveAllConfigs(all);
+  }
   if (!config) return null;
   // Migrate old rows missing fields
   config.rows = config.rows.map((r, i) => ({
@@ -227,17 +240,29 @@ export function loadConfigForClient(name: string): StoredConfig | null {
   return config;
 }
 
-export function saveConfigForClient(name: string, type: SequencerType, rows: EuclidRow[]) {
+export function saveConfigForClient(name: string, type: SequencerType, rows: EuclidRow[], program: number = 1) {
   const all = loadAllConfigs();
-  all[name] = { type, rows };
+  all[configKey(name, program)] = { type, rows };
   saveAllConfigs(all);
 }
 
 export function renameStoredConfig(oldName: string, newName: string) {
   const all = loadAllConfigs();
-  if (all[oldName]) {
-    all[newName] = all[oldName];
-    delete all[oldName];
-    saveAllConfigs(all);
+  let changed = false;
+  // Rename all program keys for this client
+  for (let p = 1; p <= 16; p++) {
+    const oldKey = configKey(oldName, p);
+    if (all[oldKey]) {
+      all[configKey(newName, p)] = all[oldKey];
+      delete all[oldKey];
+      changed = true;
+    }
   }
+  // Also migrate legacy key
+  if (all[oldName]) {
+    all[configKey(newName, 1)] = all[oldName];
+    delete all[oldName];
+    changed = true;
+  }
+  if (changed) saveAllConfigs(all);
 }

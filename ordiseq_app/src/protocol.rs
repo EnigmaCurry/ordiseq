@@ -12,6 +12,8 @@ pub enum PluginMessage {
     Transport {
         bpm: f32,
         playing: bool,
+        #[serde(default)]
+        program: u8,
     },
     ClipAck {
         clip_id: String,
@@ -26,6 +28,8 @@ pub enum AppMessage {
     Clip {
         clip_id: String,
         clip: MidiClip,
+        #[serde(default)]
+        program: u8,
     },
     Rename {
         name: String,

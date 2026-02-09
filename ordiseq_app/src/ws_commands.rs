@@ -12,12 +12,13 @@ pub fn send_clip_to_client(
     server: State<WsServer>,
     client_id: u64,
     clip: MidiClip,
+    program: u8,
 ) -> Result<(), String> {
     let clip_id = format!("clip-{}", std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis());
-    server.send_clip(client_id, clip_id, clip)
+    server.send_clip(client_id, clip_id, clip, program)
 }
 
 #[tauri::command]

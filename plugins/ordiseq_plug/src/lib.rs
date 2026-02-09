@@ -1,5 +1,5 @@
 use nih_plug::prelude::*;
-use nih_plug_egui::{create_egui_editor, egui, widgets, EguiState};
+use nih_plug_egui::{create_egui_editor, egui, EguiState};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, RwLock};
@@ -14,13 +14,24 @@ use ws_client::{STATUS_CONNECTED, STATUS_CONNECTING, STATUS_DISCONNECTED};
 const DEFAULT_PORT: u16 = 9850;
 const DEFAULT_TEMPO_BPM: f64 = 120.0;
 
+const NUM_PROGRAMS: usize = 16;
+
 /// Persisted plugin state (survives DAW save/load).
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PluginPersistState {
     pub name: String,
     pub port: u16,
-    pub clip: Option<MidiClip>,
+    /// 16 program slots, each holding an optional MIDI clip.
+    #[serde(default = "default_programs")]
+    pub programs: Vec<Option<MidiClip>>,
     pub clip_version: u64,
+    /// Legacy field for migration from single-clip state.
+    #[serde(default, skip_serializing)]
+    clip: Option<MidiClip>,
+}
+
+fn default_programs() -> Vec<Option<MidiClip>> {
+    vec![None; NUM_PROGRAMS]
 }
 
 impl Default for PluginPersistState {
@@ -28,9 +39,24 @@ impl Default for PluginPersistState {
         Self {
             name: names::generate_name(),
             port: DEFAULT_PORT,
-            clip: None,
+            programs: default_programs(),
             clip_version: 0,
+            clip: None,
         }
+    }
+}
+
+impl PluginPersistState {
+    /// Migrate legacy single-clip state to programs[0].
+    pub fn migrate(&mut self) {
+        if self.programs.is_empty() || self.programs.iter().all(|p| p.is_none()) {
+            if let Some(clip) = self.clip.take() {
+                self.programs.resize(NUM_PROGRAMS, None);
+                self.programs[0] = Some(clip);
+            }
+        }
+        // Ensure we always have exactly NUM_PROGRAMS slots
+        self.programs.resize(NUM_PROGRAMS, None);
     }
 }
 
@@ -42,8 +68,13 @@ struct OrdiseqPlugParams {
     #[persist = "plugin-state"]
     plugin_state: Arc<RwLock<PluginPersistState>>,
 
-    #[id = "gate_scale"]
-    gate_scale: FloatParam,
+    /// Selects which program (1-16) the plugin plays.
+    #[id = "program"]
+    program: IntParam,
+
+    /// Hidden param used only to poke the host into re-saving when persist state changes.
+    #[id = "dummy"]
+    dummy: FloatParam,
 }
 
 impl Default for OrdiseqPlugParams {
@@ -51,14 +82,9 @@ impl Default for OrdiseqPlugParams {
         Self {
             editor_state: EguiState::from_size(400, 280),
             plugin_state: Arc::new(RwLock::new(PluginPersistState::default())),
-            gate_scale: FloatParam::new(
-                "Gate",
-                1.0,
-                FloatRange::Linear { min: 0.1, max: 1.0 },
-            )
-            .with_unit(" %")
-            .with_value_to_string(formatters::v2s_f32_percentage(0))
-            .with_string_to_value(formatters::s2v_f32_percentage()),
+            program: IntParam::new("Program", 1, IntRange::Linear { min: 1, max: 16 }),
+            dummy: FloatParam::new("_dummy", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .hide(),
         }
     }
 }
@@ -76,8 +102,8 @@ struct OrdiseqPlug {
     samples_elapsed: u64,
     was_playing: bool,
     active_notes: Vec<ActiveNote>,
-    /// Cached clip copied from persisted state for RT-safe access.
-    cached_clip: Option<MidiClip>,
+    /// Cached programs copied from persisted state for RT-safe access.
+    cached_programs: Vec<Option<MidiClip>>,
     clip_version: u64,
 
     // WebSocket
@@ -94,6 +120,7 @@ struct OrdiseqPlug {
     // Throttling transport reports
     last_reported_bpm: f64,
     last_reported_playing: bool,
+    last_reported_program: i32,
     was_connected: bool,
 }
 
@@ -105,7 +132,7 @@ impl Default for OrdiseqPlug {
             samples_elapsed: 0,
             was_playing: false,
             active_notes: Vec::new(),
-            cached_clip: None,
+            cached_programs: vec![None; NUM_PROGRAMS],
             clip_version: 0,
             ws_outbox: None,
             ws_inbox: None,
@@ -115,6 +142,7 @@ impl Default for OrdiseqPlug {
             needs_host_notify: Arc::new(AtomicBool::new(false)),
             last_reported_bpm: 0.0,
             last_reported_playing: false,
+            last_reported_program: -1,
             was_connected: false,
         }
     }
@@ -171,10 +199,11 @@ impl OrdiseqPlug {
 
         while let Ok(msg) = inbox.try_recv() {
             match msg {
-                AppMessage::Clip { clip, clip_id } => {
+                AppMessage::Clip { clip, clip_id, program } => {
                     if let Ok(mut state) = self.params.plugin_state.write() {
+                        let idx = (program as usize).min(NUM_PROGRAMS - 1);
+                        state.programs[idx] = Some(clip);
                         state.clip_version += 1;
-                        state.clip = Some(clip);
                     }
                     self.needs_host_notify.store(true, Ordering::Relaxed);
                     // Send ack
@@ -195,11 +224,11 @@ impl OrdiseqPlug {
         }
     }
 
-    /// Sync cached clip from persisted state if version changed (non-blocking read lock).
-    fn sync_cached_clip(&mut self) {
+    /// Sync cached programs from persisted state if version changed (non-blocking read lock).
+    fn sync_cached_programs(&mut self) {
         if let Ok(state) = self.params.plugin_state.try_read() {
             if state.clip_version != self.clip_version {
-                self.cached_clip = state.clip.clone();
+                self.cached_programs = state.programs.clone();
                 self.clip_version = state.clip_version;
             }
         }
@@ -211,16 +240,21 @@ impl OrdiseqPlug {
         let just_connected = connected && !self.was_connected;
         self.was_connected = connected;
 
+        let program = self.params.program.value();
+
         if just_connected
             || (bpm - self.last_reported_bpm).abs() > 0.01
             || playing != self.last_reported_playing
+            || program != self.last_reported_program
         {
             self.last_reported_bpm = bpm;
             self.last_reported_playing = playing;
+            self.last_reported_program = program;
             if let Some(tx) = &self.ws_outbox {
                 let _ = tx.try_send(PluginMessage::Transport {
                     bpm: bpm as f32,
                     playing,
+                    program: (program - 1) as u8,
                 });
             }
         }
@@ -256,12 +290,16 @@ impl Plugin for OrdiseqPlug {
         self.was_playing = false;
         self.active_notes.clear();
 
-        // Sync clip from persisted state
-        if let Ok(state) = self.params.plugin_state.read() {
-            self.cached_clip = state.clip.clone();
+        // Migrate and sync programs from persisted state
+        if let Ok(mut state) = self.params.plugin_state.write() {
+            state.migrate();
+            self.cached_programs = state.programs.clone();
             self.clip_version = state.clip_version;
-            nih_log!("Ordiseq: initialize, clip={}, version={}",
-                state.clip.as_ref().map_or("None".to_string(), |c| format!("\"{}\" ({} notes)", c.name, c.notes.len())),
+            let active = (self.params.program.value() - 1) as usize;
+            nih_log!("Ordiseq: initialize, program={}, clip={}, version={}",
+                active + 1,
+                state.programs.get(active).and_then(|c| c.as_ref())
+                    .map_or("None".to_string(), |c| format!("\"{}\" ({} notes)", c.name, c.notes.len())),
                 state.clip_version);
         }
 
@@ -287,10 +325,10 @@ impl Plugin for OrdiseqPlug {
             move |egui_ctx, setter, _state| {
                 // Notify host that persist state changed so the DAW re-saves
                 if needs_host_notify.swap(false, Ordering::Relaxed) {
-                    let v = params.gate_scale.value();
-                    setter.begin_set_parameter(&params.gate_scale);
-                    setter.set_parameter(&params.gate_scale, v);
-                    setter.end_set_parameter(&params.gate_scale);
+                    let v = params.dummy.value();
+                    setter.begin_set_parameter(&params.dummy);
+                    setter.set_parameter(&params.dummy, v);
+                    setter.end_set_parameter(&params.dummy);
                 }
 
                 egui::CentralPanel::default().show(egui_ctx, |ui| {
@@ -347,28 +385,25 @@ impl Plugin for OrdiseqPlug {
                     ui.separator();
                     ui.add_space(4.0);
 
-                    // Clip info
+                    // Program & clip info
                     {
+                        let pgm = params.program.value();
                         let state = params.plugin_state.read().unwrap();
-                        if let Some(clip) = &state.clip {
+                        let idx = (pgm - 1).max(0) as usize;
+                        if let Some(Some(clip)) = state.programs.get(idx) {
                             ui.label(format!(
-                                "Clip: \"{}\" ({} beats, {} notes)",
+                                "Program {}: \"{}\" ({} beats, {} notes)",
+                                pgm,
                                 clip.name,
                                 clip.length_beats,
                                 clip.notes.len()
                             ));
                         } else {
-                            ui.label("No clip loaded");
+                            ui.label(format!("Program {}: empty", pgm));
                         }
                     }
 
                     ui.add_space(4.0);
-
-                    // Parameter sliders
-                    ui.add(widgets::ParamSlider::for_param(
-                        &params.gate_scale,
-                        setter,
-                    ));
                 });
             },
         )
@@ -384,7 +419,7 @@ impl Plugin for OrdiseqPlug {
 
         // Poll WebSocket inbox for new clips/renames
         self.poll_ws_inbox();
-        self.sync_cached_clip();
+        self.sync_cached_programs();
 
         let bpm = transport.tempo.unwrap_or(DEFAULT_TEMPO_BPM);
         let playing = transport.playing;
@@ -408,12 +443,12 @@ impl Plugin for OrdiseqPlug {
             self.was_playing = true;
         }
 
-        let clip = match &self.cached_clip {
+        let program_idx = (self.params.program.value() - 1).max(0) as usize;
+        let clip = match self.cached_programs.get(program_idx).and_then(|c| c.as_ref()) {
             Some(c) if !c.notes.is_empty() && c.length_beats > 0.0 => c,
             _ => return ProcessStatus::Normal,
         };
 
-        let gate_scale = self.params.gate_scale.value();
         let sample_rate = self.sample_rate as f64;
         let beats_per_second = bpm / 60.0;
         let samples_per_beat = sample_rate / beats_per_second;
@@ -455,7 +490,7 @@ impl Plugin for OrdiseqPlug {
                     });
 
                     let duration_samples =
-                        (clip_note.duration_beats as f64 * gate_scale as f64 * samples_per_beat) as u64;
+                        (clip_note.duration_beats as f64 * samples_per_beat) as u64;
                     self.active_notes.push(ActiveNote {
                         channel: clip_note.channel,
                         note: clip_note.note,
