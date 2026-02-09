@@ -1,13 +1,18 @@
 <script lang="ts">
   import { setShader, setUniforms, exampleShaders, shaderConfig, animationConfig, setAnimationEnabled, setAnimationBase, persistSettings, selectedShaderName } from "../shaderStore";
-  import { loadAlwaysOnTop, saveAlwaysOnTop } from "../settingsStore";
+  import { loadAlwaysOnTop, saveAlwaysOnTop, loadIconShape, saveIconShape } from "../settingsStore";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { iconShapes, applyIcon, type IconShape } from "../iconGenerator";
 
   let alwaysOnTop = $state(false);
+  let iconShape = $state<IconShape>("ufo");
 
-  // Load persisted always-on-top setting
+  // Load persisted settings
   loadAlwaysOnTop().then((value) => {
     alwaysOnTop = value;
+  });
+  loadIconShape().then((value) => {
+    iconShape = value;
   });
 
   async function updateAlwaysOnTop(event: Event) {
@@ -15,6 +20,13 @@
     alwaysOnTop = input.checked;
     await getCurrentWindow().setAlwaysOnTop(alwaysOnTop);
     await saveAlwaysOnTop(alwaysOnTop);
+  }
+
+  async function updateIconShape(event: Event) {
+    const select = event.target as HTMLSelectElement;
+    iconShape = select.value as IconShape;
+    await applyIcon(iconShape);
+    await saveIconShape(iconShape);
   }
 
   const shaderOptions = [
@@ -199,6 +211,15 @@
         />
         Always on Top
       </label>
+    </div>
+
+    <div class="field">
+      <label for="iconShape">Window Icon</label>
+      <select id="iconShape" value={iconShape} onchange={updateIconShape}>
+        {#each iconShapes as option}
+          <option value={option.value}>{option.label}</option>
+        {/each}
+      </select>
     </div>
   </div>
 

@@ -16,9 +16,12 @@ export interface ShaderSettings {
   animationEnabled: boolean;
 }
 
+import type { IconShape } from "./iconGenerator";
+
 const STORE_FILE = "settings.json";
 const SHADER_KEY = "shader";
 const ALWAYS_ON_TOP_KEY = "alwaysOnTop";
+const ICON_SHAPE_KEY = "iconShape";
 
 const defaultSettings: ShaderSettings = {
   selectedShader: "retrogrid",
@@ -91,5 +94,26 @@ export async function saveAlwaysOnTop(value: boolean): Promise<void> {
     await s.save();
   } catch (e) {
     console.warn("Failed to save always-on-top setting:", e);
+  }
+}
+
+export async function loadIconShape(): Promise<IconShape> {
+  try {
+    const s = await getStore();
+    const saved = await s.get<IconShape>(ICON_SHAPE_KEY);
+    return saved ?? "ufo";
+  } catch (e) {
+    console.warn("Failed to load icon shape setting:", e);
+    return "triangle";
+  }
+}
+
+export async function saveIconShape(value: IconShape): Promise<void> {
+  try {
+    const s = await getStore();
+    await s.set(ICON_SHAPE_KEY, value);
+    await s.save();
+  } catch (e) {
+    console.warn("Failed to save icon shape setting:", e);
   }
 }
