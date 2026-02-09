@@ -340,6 +340,24 @@ impl WsServer {
             .map_err(|e| format!("Failed to send: {e}"))
     }
 
+    pub fn send_play_mode(
+        &self,
+        client_id: ClientId,
+        program: u8,
+        note_trigger: bool,
+    ) -> Result<(), String> {
+        let map = self.clients.read().unwrap();
+        let client = map
+            .get(&client_id)
+            .ok_or_else(|| format!("Client {client_id} not found"))?;
+        let msg = AppMessage::PlayMode { program, note_trigger };
+        let json = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+        client
+            .sender
+            .send(json)
+            .map_err(|e| format!("Failed to send: {e}"))
+    }
+
     pub fn rename_client(
         &self,
         client_id: ClientId,

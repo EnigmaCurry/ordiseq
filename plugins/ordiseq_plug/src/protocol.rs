@@ -39,6 +39,10 @@ pub enum AppMessage {
     Rename {
         name: String,
     },
+    PlayMode {
+        program: u8,
+        note_trigger: bool,
+    },
     Ping,
     StartSync,
     StopSync,

@@ -80,6 +80,10 @@ export async function sendClipToClient(clientId: number, clip: MidiClip, program
   await invoke("send_clip_to_client", { clientId, clip, program });
 }
 
+export async function sendPlayModeToClient(clientId: number, program: number, noteTrigger: boolean) {
+  await invoke("set_play_mode", { clientId, program, noteTrigger });
+}
+
 export async function renameClient(clientId: number, name: string) {
   await invoke("rename_client", { clientId, name });
 }
@@ -197,6 +201,7 @@ const STORAGE_KEY = "sequencer-configs";
 interface StoredConfig {
   type: SequencerType;
   rows: EuclidRow[];
+  noteTrigger?: boolean;
 }
 
 function loadAllConfigs(): Record<string, StoredConfig> {
@@ -240,9 +245,9 @@ export function loadConfigForClient(name: string, program: number = 1): StoredCo
   return config;
 }
 
-export function saveConfigForClient(name: string, type: SequencerType, rows: EuclidRow[], program: number = 1) {
+export function saveConfigForClient(name: string, type: SequencerType, rows: EuclidRow[], program: number = 1, noteTrigger: boolean = false) {
   const all = loadAllConfigs();
-  all[configKey(name, program)] = { type, rows };
+  all[configKey(name, program)] = { type, rows, noteTrigger };
   saveAllConfigs(all);
 }
 

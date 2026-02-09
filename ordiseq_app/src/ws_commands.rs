@@ -22,6 +22,16 @@ pub fn send_clip_to_client(
 }
 
 #[tauri::command]
+pub fn set_play_mode(
+    server: State<WsServer>,
+    client_id: u64,
+    program: u8,
+    note_trigger: bool,
+) -> Result<(), String> {
+    server.send_play_mode(client_id, program, note_trigger)
+}
+
+#[tauri::command]
 pub fn rename_client(
     server: State<WsServer>,
     client_id: u64,

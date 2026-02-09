@@ -3,6 +3,7 @@
     clients,
     renameClient,
     sendClipToClient,
+    sendPlayModeToClient,
     euclideanToClip,
     defaultEuclidRow,
     midiNoteName,
@@ -31,6 +32,9 @@
   // Per-client edit program (1-16), controls which program slot the sequencer edits
   let editPrograms = $state<Record<number, number>>({});
 
+  // Per-client play mode for current edit program
+  let playModes = $state<Record<number, "transport" | "note_trigger">>({});
+
   // Track which client IDs have been initialized from storage
   let initializedIds = new Set<number>();
 
@@ -47,9 +51,11 @@
         if (stored) {
           sequencerTypes[client.id] = stored.type;
           euclideanRows[client.id] = stored.rows;
+          playModes[client.id] = stored.noteTrigger ? "note_trigger" : "transport";
           if (stored.type === "euclidean" && stored.rows.length > 0) {
             syncToClient(client.id);
           }
+          sendPlayModeToClient(client.id, pgm - 1, stored.noteTrigger ?? false);
         }
       }
     }
@@ -101,6 +107,7 @@
     if (stored) {
       sequencerTypes[clientId] = stored.type;
       euclideanRows[clientId] = stored.rows;
+      playModes[clientId] = stored.noteTrigger ? "note_trigger" : "transport";
       midiInfos[clientId] = undefined as any;
       if (stored.type === "euclidean" && stored.rows.length > 0) {
         syncToClient(clientId);
@@ -108,8 +115,10 @@
     } else {
       sequencerTypes[clientId] = "none";
       euclideanRows[clientId] = [];
+      playModes[clientId] = "transport";
       midiInfos[clientId] = undefined as any;
     }
+    sendPlayModeToClient(clientId, pgm - 1, playModes[clientId] === "note_trigger");
   }
 
   function getSequencerType(clientId: number): SequencerType {
@@ -186,7 +195,8 @@
     const name = clientName(clientId);
     if (name) {
       const pgm = getEditProgram(clientId);
-      saveConfigForClient(name, sequencerTypes[clientId] ?? "none", euclideanRows[clientId] ?? [], pgm);
+      const noteTrigger = (playModes[clientId] ?? "transport") === "note_trigger";
+      saveConfigForClient(name, sequencerTypes[clientId] ?? "none", euclideanRows[clientId] ?? [], pgm, noteTrigger);
     }
   }
 
@@ -203,6 +213,17 @@
     } catch (e) {
       console.error("Failed to sync clip:", e);
     }
+  }
+
+  function getPlayMode(clientId: number): "transport" | "note_trigger" {
+    return playModes[clientId] ?? "transport";
+  }
+
+  function setPlayMode(clientId: number, mode: "transport" | "note_trigger") {
+    playModes[clientId] = mode;
+    persistConfig(clientId);
+    const pgm = getEditProgram(clientId) - 1;
+    sendPlayModeToClient(clientId, pgm, mode === "note_trigger");
   }
 
   /** Returns per-step info: "off" | "hit" | "accent".
@@ -358,6 +379,21 @@
 
               </div>
             {/if}
+
+            <div class="play-mode-row">
+              <div class="seq-select-wrapper">
+                <select
+                  class="seq-select"
+                  value={getPlayMode(client.id)}
+                  onchange={(e) => setPlayMode(client.id, (e.target as HTMLSelectElement).value as "transport" | "note_trigger")}
+                >
+                  <option value="transport">Transport</option>
+                  <option value="note_trigger">Note Trigger</option>
+                </select>
+                <span class="seq-select-spacer"></span>
+                <span class="seq-select-label">Play Mode</span>
+              </div>
+            </div>
           </div>
         </div>
       {/each}
@@ -623,5 +659,9 @@
 
   .midi-drag-section {
     margin-bottom: 0.5rem;
+  }
+
+  .play-mode-row {
+    margin-top: 0.75rem;
   }
 </style>

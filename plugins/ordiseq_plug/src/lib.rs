@@ -25,9 +25,16 @@ pub struct PluginPersistState {
     #[serde(default = "default_programs")]
     pub programs: Vec<Option<MidiClip>>,
     pub clip_version: u64,
+    /// Per-program play mode: false = transport, true = note trigger.
+    #[serde(default = "default_play_modes")]
+    pub play_modes: Vec<bool>,
     /// Legacy field for migration from single-clip state.
     #[serde(default, skip_serializing)]
     clip: Option<MidiClip>,
+}
+
+fn default_play_modes() -> Vec<bool> {
+    vec![false; NUM_PROGRAMS]
 }
 
 fn default_programs() -> Vec<Option<MidiClip>> {
@@ -41,6 +48,7 @@ impl Default for PluginPersistState {
             port: DEFAULT_PORT,
             programs: default_programs(),
             clip_version: 0,
+            play_modes: default_play_modes(),
             clip: None,
         }
     }
@@ -57,6 +65,7 @@ impl PluginPersistState {
         }
         // Ensure we always have exactly NUM_PROGRAMS slots
         self.programs.resize(NUM_PROGRAMS, None);
+        self.play_modes.resize(NUM_PROGRAMS, false);
     }
 }
 
@@ -80,7 +89,7 @@ struct OrdiseqPlugParams {
 impl Default for OrdiseqPlugParams {
     fn default() -> Self {
         Self {
-            editor_state: EguiState::from_size(400, 280),
+            editor_state: EguiState::from_size(400, 480),
             plugin_state: Arc::new(RwLock::new(PluginPersistState::default())),
             program: IntParam::new("Program", 1, IntRange::Linear { min: 1, max: 16 }),
             dummy: FloatParam::new("_dummy", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 })
@@ -104,7 +113,10 @@ struct OrdiseqPlug {
     active_notes: Vec<ActiveNote>,
     /// Cached programs copied from persisted state for RT-safe access.
     cached_programs: Vec<Option<MidiClip>>,
+    cached_play_modes: Vec<bool>,
     clip_version: u64,
+    /// Count of currently held MIDI input notes (for note trigger mode).
+    held_notes: u8,
 
     // WebSocket
     ws_outbox: Option<crossbeam_channel::Sender<PluginMessage>>,
@@ -137,7 +149,9 @@ impl Default for OrdiseqPlug {
             was_playing: false,
             active_notes: Vec::new(),
             cached_programs: vec![None; NUM_PROGRAMS],
+            cached_play_modes: vec![false; NUM_PROGRAMS],
             clip_version: 0,
+            held_notes: 0,
             ws_outbox: None,
             ws_inbox: None,
             ws_stop_flag: Arc::new(AtomicBool::new(false)),
@@ -224,6 +238,14 @@ impl OrdiseqPlug {
                     }
                     self.needs_host_notify.store(true, Ordering::Relaxed);
                 }
+                AppMessage::PlayMode { program, note_trigger } => {
+                    if let Ok(mut state) = self.params.plugin_state.write() {
+                        let idx = (program as usize).min(NUM_PROGRAMS - 1);
+                        state.play_modes[idx] = note_trigger;
+                        state.clip_version += 1;
+                    }
+                    self.needs_host_notify.store(true, Ordering::Relaxed);
+                }
                 AppMessage::Ping | AppMessage::StartSync | AppMessage::StopSync => {
                     // Handled on WS thread, no action needed here
                 }
@@ -236,6 +258,7 @@ impl OrdiseqPlug {
         if let Ok(state) = self.params.plugin_state.try_read() {
             if state.clip_version != self.clip_version {
                 self.cached_programs = state.programs.clone();
+                self.cached_play_modes = state.play_modes.clone();
                 self.clip_version = state.clip_version;
             }
         }
@@ -275,7 +298,7 @@ impl Plugin for OrdiseqPlug {
     const EMAIL: &'static str = "";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[];
-    const MIDI_INPUT: MidiConfig = MidiConfig::None;
+    const MIDI_INPUT: MidiConfig = MidiConfig::Basic;
     const MIDI_OUTPUT: MidiConfig = MidiConfig::MidiCCs;
     const SAMPLE_ACCURATE_AUTOMATION: bool = true;
 
@@ -392,25 +415,51 @@ impl Plugin for OrdiseqPlug {
                     ui.separator();
                     ui.add_space(4.0);
 
-                    // Program & clip info
+                    // Program slots
+                    ui.label("Programs:");
+                    ui.add_space(2.0);
                     {
-                        let pgm = params.program.value();
+                        let current_pgm = params.program.value() as usize;
                         let state = params.plugin_state.read().unwrap();
-                        let idx = (pgm - 1).max(0) as usize;
-                        if let Some(Some(clip)) = state.programs.get(idx) {
-                            ui.label(format!(
-                                "Program {}: \"{}\" ({} beats, {} notes)",
-                                pgm,
-                                clip.name,
-                                clip.length_beats,
-                                clip.notes.len()
-                            ));
-                        } else {
-                            ui.label(format!("Program {}: empty", pgm));
-                        }
-                    }
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                for i in 0..NUM_PROGRAMS {
+                                    let pgm_num = i + 1;
+                                    let is_current = pgm_num == current_pgm;
+                                    let has_clip = state.programs.get(i).is_some_and(|p| p.is_some());
 
-                    ui.add_space(4.0);
+                                    let mode_tag = if state.play_modes.get(i).copied().unwrap_or(false) {
+                                        "N"
+                                    } else {
+                                        "T"
+                                    };
+                                    let label_text = if let Some(Some(clip)) = state.programs.get(i) {
+                                        format!(
+                                            "{:>2} [{}] \"{}\"  {} beats, {} notes",
+                                            pgm_num, mode_tag, clip.name, clip.length_beats, clip.notes.len()
+                                        )
+                                    } else {
+                                        format!("{:>2} [{}] empty", pgm_num, mode_tag)
+                                    };
+
+                                    let text = if is_current {
+                                        egui::RichText::new(label_text).strong()
+                                    } else if has_clip {
+                                        egui::RichText::new(label_text)
+                                    } else {
+                                        egui::RichText::new(label_text).weak()
+                                    };
+
+                                    let response = ui.selectable_label(is_current, text);
+                                    if response.clicked() && !is_current {
+                                        setter.begin_set_parameter(&params.program);
+                                        setter.set_parameter(&params.program, pgm_num as i32);
+                                        setter.end_set_parameter(&params.program);
+                                    }
+                                }
+                            });
+                    }
                 });
             },
         )
@@ -466,8 +515,26 @@ impl Plugin for OrdiseqPlug {
             }
         }
 
-        // If not playing, stop notes and reset
-        if !playing {
+        // Consume incoming MIDI events for note trigger mode
+        while let Some(event) = context.next_event() {
+            match event {
+                NoteEvent::NoteOn { .. } => {
+                    self.held_notes = self.held_notes.saturating_add(1);
+                }
+                NoteEvent::NoteOff { .. } => {
+                    self.held_notes = self.held_notes.saturating_sub(1);
+                }
+                _ => {}
+            }
+        }
+
+        // Determine play mode for current program
+        let program_idx = (self.params.program.value() - 1).max(0) as usize;
+        let note_trigger = self.cached_play_modes.get(program_idx).copied().unwrap_or(false);
+        let active = if note_trigger { self.held_notes > 0 } else { playing };
+
+        // If not active, stop notes and reset
+        if !active {
             if self.was_playing {
                 self.stop_all_notes(context);
                 self.samples_elapsed = 0;
@@ -476,13 +543,11 @@ impl Plugin for OrdiseqPlug {
             return ProcessStatus::Normal;
         }
 
-        // Transport just started
+        // Just became active
         if !self.was_playing {
             self.samples_elapsed = 0;
             self.was_playing = true;
         }
-
-        let program_idx = (self.params.program.value() - 1).max(0) as usize;
         let clip = match self.cached_programs.get(program_idx).and_then(|c| c.as_ref()) {
             Some(c) if !c.notes.is_empty() && c.length_beats > 0.0 => c,
             _ => return ProcessStatus::Normal,
