@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Ordiseq MIDI Sequencer",
+        "title": "Ordiseq Mothership",
         "width": 600,
         "height": 500,
         "resizable": true,
