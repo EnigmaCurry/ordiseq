@@ -10,7 +10,7 @@ mod ws_server;
 
 use tauri::Manager;
 
-use commands::{generate_midi, get_playback_status, play_midi, stop_midi};
+use commands::{clip_to_midi_file, generate_midi, get_playback_status, play_midi, stop_midi};
 use ws_commands::{get_clients, rename_client, send_clip_to_client};
 
 fn main() {
@@ -27,6 +27,7 @@ fn main() {
             play_midi,
             stop_midi,
             get_playback_status,
+            clip_to_midi_file,
             get_clients,
             send_clip_to_client,
             rename_client,

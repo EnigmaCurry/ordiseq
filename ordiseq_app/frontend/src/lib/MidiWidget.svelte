@@ -4,7 +4,7 @@
   import { resolveResource } from "@tauri-apps/api/path";
   import { invoke } from "@tauri-apps/api/core";
 
-  let { midiInfo }: { midiInfo: MidiInfo } = $props();
+  let { midiInfo, compact = false }: { midiInfo: MidiInfo; compact?: boolean } = $props();
   let error = $state("");
   let isPlaying = $state(false);
 
@@ -61,67 +61,154 @@
   }
 </script>
 
-<div class="midi-widget">
-  <button
-    class="play-button"
-    class:playing={isPlaying}
-    onclick={handlePlay}
-    title={isPlaying ? "Stop" : "Play"}
-  >
-    {#if isPlaying}
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
-        fill="currentColor"
-        width="40"
-        height="40"
-      >
-        <rect x="6" y="6" width="12" height="12" />
-      </svg>
-    {:else}
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
-        fill="currentColor"
-        width="40"
-        height="40"
-      >
-        <path d="M8 5v14l11-7z" />
-      </svg>
-    {/if}
-  </button>
+{#if compact}
+  <div class="compact-widget" role="button" tabindex="0" onmousedown={handleMouseDown}>
+    <button
+      class="compact-play"
+      class:playing={isPlaying}
+      onclick={(e) => { e.stopPropagation(); handlePlay(); }}
+      title={isPlaying ? "Stop" : "Play"}
+    >
+      {#if isPlaying}
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+          <rect x="6" y="6" width="12" height="12" />
+        </svg>
+      {:else}
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+          <path d="M8 5v14l11-7z" />
+        </svg>
+      {/if}
+    </button>
+    <svg class="compact-note" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+      <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+    </svg>
+    <span class="compact-label">{midiInfo.title}</span>
+    <span class="compact-sep">&middot;</span>
+    <span class="compact-detail">{midiInfo.note_count} notes</span>
+    <span class="compact-sep">&middot;</span>
+    <span class="compact-hint">Drag into DAW</span>
+  </div>
+  {#if error}
+    <div class="error">{error}</div>
+  {/if}
+{:else}
+  <div class="midi-widget">
+    <button
+      class="play-button"
+      class:playing={isPlaying}
+      onclick={handlePlay}
+      title={isPlaying ? "Stop" : "Play"}
+    >
+      {#if isPlaying}
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="40" height="40">
+          <rect x="6" y="6" width="12" height="12" />
+        </svg>
+      {:else}
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="40" height="40">
+          <path d="M8 5v14l11-7z" />
+        </svg>
+      {/if}
+    </button>
 
-  <div
-    class="drag-area"
-    role="button"
-    tabindex="0"
-    onmousedown={handleMouseDown}
-  >
-    <div class="icon">
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
-        fill="currentColor"
-        width="48"
-        height="48"
-      >
-        <path
-          d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"
-        />
-      </svg>
-    </div>
-    <div class="info">
-      <div class="title">{midiInfo.title}</div>
-      <div class="details">{midiInfo.note_count} notes</div>
-      <div class="hint">Drag to export</div>
+    <div
+      class="drag-area"
+      role="button"
+      tabindex="0"
+      onmousedown={handleMouseDown}
+    >
+      <div class="icon">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="48" height="48">
+          <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+        </svg>
+      </div>
+      <div class="info">
+        <div class="title">{midiInfo.title}</div>
+        <div class="details">{midiInfo.note_count} notes</div>
+        <div class="hint">Drag to export</div>
+      </div>
     </div>
   </div>
-</div>
-{#if error}
-  <div class="error">{error}</div>
+  {#if error}
+    <div class="error">{error}</div>
+  {/if}
 {/if}
 
 <style>
+  /* --- Compact layout --- */
+  .compact-widget {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.5rem;
+    background-color: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(var(--color-3), 0.4);
+    border-radius: 4px;
+    cursor: grab;
+    -webkit-user-select: none;
+    user-select: none;
+    transition: background-color 0.15s ease;
+  }
+
+  .compact-widget:hover {
+    background-color: rgba(var(--color-3), 0.1);
+  }
+
+  .compact-widget:active {
+    cursor: grabbing;
+    background-color: rgba(var(--color-3), 0.2);
+  }
+
+  .compact-play {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    margin: 0;
+    background-color: rgb(var(--color-4));
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    color: #000;
+    flex-shrink: 0;
+  }
+
+  .compact-play:hover {
+    filter: brightness(1.2);
+  }
+
+  .compact-play.playing {
+    background-color: rgb(var(--color-1));
+  }
+
+  .compact-note {
+    color: rgb(var(--color-1));
+    flex-shrink: 0;
+  }
+
+  .compact-label {
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: #f8f8f2;
+  }
+
+  .compact-sep {
+    color: #666;
+    font-size: 0.75rem;
+  }
+
+  .compact-detail {
+    font-size: 0.75rem;
+    color: rgb(var(--color-2));
+  }
+
+  .compact-hint {
+    font-size: 0.7rem;
+    color: rgba(var(--color-3), 0.7);
+  }
+
+  /* --- Full layout --- */
   .midi-widget {
     display: grid;
     grid-template-columns: 72px 1fr;

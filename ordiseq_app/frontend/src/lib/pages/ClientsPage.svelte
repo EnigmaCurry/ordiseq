@@ -17,7 +17,10 @@
     type SequencerType,
     type EuclidRow,
   } from "../clientsStore";
+  import type { MidiInfo } from "../types";
+  import { invoke } from "@tauri-apps/api/core";
   import Dial from "../Dial.svelte";
+  import MidiWidget from "../MidiWidget.svelte";
 
   startPolling();
   onDestroy(stopPolling);
@@ -28,6 +31,7 @@
   // Per-client sequencer state, keyed by client id
   let sequencerTypes = $state<Record<number, SequencerType>>({});
   let euclideanRows = $state<Record<number, EuclidRow[]>>({});
+  let midiInfos = $state<Record<number, MidiInfo>>({});
 
   // Track which client IDs have been initialized from storage
   let initializedIds = new Set<number>();
@@ -164,6 +168,8 @@
     try {
       const clip = euclideanToClip(rows);
       await sendClipToClient(clientId, clip);
+      const result = await invoke<MidiInfo>("clip_to_midi_file", { clip });
+      midiInfos[clientId] = result;
     } catch (e) {
       console.error("Failed to sync clip:", e);
     }
@@ -247,6 +253,11 @@
 
             {#if getSequencerType(client.id) === "euclidean"}
               <div class="euclid-panel">
+                {#if midiInfos[client.id]}
+                  <div class="midi-drag-section">
+                    <MidiWidget midiInfo={midiInfos[client.id]} compact />
+                  </div>
+                {/if}
                 <div class="euclid-header-row">
                   <span class="euclid-col note-col">Note</span>
                   <span class="euclid-col">Length</span>
@@ -301,6 +312,7 @@
                   disabled={getRows(client.id).length >= 12}>
                   + Add Row
                 </button>
+
               </div>
             {/if}
           </div>
@@ -531,5 +543,9 @@
   .add-row-btn:disabled {
     opacity: 0.4;
     cursor: default;
+  }
+
+  .midi-drag-section {
+    margin-bottom: 0.5rem;
   }
 </style>

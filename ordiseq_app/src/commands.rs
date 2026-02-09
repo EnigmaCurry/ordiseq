@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::protocol::MidiClip;
+
 static TEMP_FILES: Mutex<Vec<tempfile::NamedTempFile>> = Mutex::new(Vec::new());
 static STOP_FLAG: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
 static PLAYBACK_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -170,4 +172,44 @@ pub fn get_playback_status() -> PlaybackStatus {
     PlaybackStatus {
         playing: PLAYBACK_ACTIVE.load(Ordering::SeqCst),
     }
+}
+
+#[tauri::command]
+pub fn clip_to_midi_file(clip: MidiClip) -> Result<MidiResult, String> {
+    const REPEATS: u32 = 10;
+    let mut raw_notes = Vec::with_capacity(clip.notes.len() * REPEATS as usize);
+    for rep in 0..REPEATS {
+        let offset = rep as f32 * clip.length_beats;
+        for n in &clip.notes {
+            raw_notes.push(RawClipNote {
+                note: n.note,
+                channel: n.channel,
+                velocity: n.velocity,
+                start_beats: n.start_beats + offset,
+                duration_beats: n.duration_beats,
+            });
+        }
+    }
+
+    let smf = clip_to_midi(clip.length_beats * REPEATS as f32, &raw_notes);
+
+    let temp_file = tempfile::Builder::new()
+        .prefix("ordiseq_")
+        .suffix(".mid")
+        .tempfile()
+        .map_err(|e| format!("Failed to create temp file: {}", e))?;
+
+    let path = temp_file.path().to_path_buf();
+
+    smf.save(&path)
+        .map_err(|e| format!("Failed to save MIDI: {}", e))?;
+
+    let path_str = path.to_string_lossy().to_string();
+    TEMP_FILES.lock().unwrap().push(temp_file);
+
+    Ok(MidiResult {
+        path: path_str,
+        title: clip.name,
+        note_count: clip.notes.len(),
+    })
 }
