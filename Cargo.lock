@@ -4140,7 +4140,10 @@ version = "0.1.0"
 dependencies = [
  "nih_plug",
  "nih_plug_egui",
+ "ordiseq",
  "serde",
+ "windows 0.56.0",
+ "windows-core 0.56.0",
  "xtask",
 ]
 

@@ -14,4 +14,20 @@ crate-type = ["cdylib"]
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs"] }
 nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git" }
 serde = { version = "1.0", features = ["derive"] }
+ordiseq = { path = "../../ordiseq" }
 xtask = { path = "../../xtask" }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.56", features = [
+    "implement",
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Ole",
+    "Win32_System_Memory",
+    "Win32_System_SystemServices",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+windows-core = "0.56"
