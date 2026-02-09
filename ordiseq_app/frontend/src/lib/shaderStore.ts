@@ -34,6 +34,8 @@ const defaultConfig: ShaderConfig = {
     u_fisheye: 0.04,
     u_overlay: 0.9,
     u_bpm: 120.0,
+    u_beat: 0.0,
+    u_playing: 0.0,
     u_color1: [1.0, 0.08, 0.58],   // Hot pink
     u_color2: [0.0, 1.0, 0.87],    // Cyan
     u_color3: [0.74, 0.58, 0.98],  // Purple
@@ -200,6 +202,8 @@ export async function initializeSettings(): Promise<void> {
         u_fisheye: settings.uniforms.fisheye,
         u_overlay: settings.uniforms.overlay,
         u_bpm: 120.0,
+        u_beat: 0.0,
+        u_playing: 0.0,
         u_color1: hexToRgb(settings.uniforms.color1),
         u_color2: hexToRgb(settings.uniforms.color2),
         u_color3: hexToRgb(settings.uniforms.color3),

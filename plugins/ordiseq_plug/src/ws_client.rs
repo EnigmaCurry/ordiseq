@@ -19,9 +19,10 @@ pub fn spawn_ws_thread(
     connection_status: Arc<AtomicU8>,
     stop_flag: Arc<AtomicBool>,
     plugin_state: Arc<RwLock<PluginPersistState>>,
+    sync_enabled: Arc<AtomicBool>,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
-        ws_thread_loop(outbox_rx, inbox_tx, connection_status, stop_flag, plugin_state);
+        ws_thread_loop(outbox_rx, inbox_tx, connection_status, stop_flag, plugin_state, sync_enabled);
     })
 }
 
@@ -31,12 +32,16 @@ fn ws_thread_loop(
     connection_status: Arc<AtomicU8>,
     stop_flag: Arc<AtomicBool>,
     plugin_state: Arc<RwLock<PluginPersistState>>,
+    sync_enabled: Arc<AtomicBool>,
 ) {
     loop {
         if stop_flag.load(Ordering::Relaxed) {
             connection_status.store(STATUS_DISCONNECTED, Ordering::Relaxed);
             return;
         }
+
+        // Reset sync on reconnect — app must re-request
+        sync_enabled.store(false, Ordering::Relaxed);
 
         let (port, name) = {
             let state = plugin_state.read().unwrap();
@@ -96,7 +101,7 @@ fn ws_thread_loop(
         }
 
         // Main read/write loop
-        if !client_loop(&mut ws, &outbox_rx, &inbox_tx, &connection_status, &stop_flag, &plugin_state, &mut last_port) {
+        if !client_loop(&mut ws, &outbox_rx, &inbox_tx, &connection_status, &stop_flag, &plugin_state, &sync_enabled, &mut last_port) {
             let _ = ws.close(None);
             connection_status.store(STATUS_DISCONNECTED, Ordering::Relaxed);
             sleep_with_stop_check(&stop_flag, Duration::from_secs(3));
@@ -112,6 +117,7 @@ fn client_loop(
     connection_status: &Arc<AtomicU8>,
     stop_flag: &Arc<AtomicBool>,
     plugin_state: &Arc<RwLock<PluginPersistState>>,
+    sync_enabled: &Arc<AtomicBool>,
     last_port: &mut u16,
 ) -> bool {
     loop {
@@ -145,6 +151,16 @@ fn client_loop(
                         if let Ok(mut state) = plugin_state.write() {
                             state.name = name.clone();
                         }
+                    }
+                    // Handle sync commands directly on WS thread (no round-trip to audio)
+                    match &app_msg {
+                        AppMessage::StartSync => {
+                            sync_enabled.store(true, Ordering::Relaxed);
+                        }
+                        AppMessage::StopSync => {
+                            sync_enabled.store(false, Ordering::Relaxed);
+                        }
+                        _ => {}
                     }
                     let _ = inbox_tx.try_send(app_msg);
                 }

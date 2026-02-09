@@ -21,6 +21,33 @@ pub struct ClientInfo {
     pub program: u8,
 }
 
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct SyncStateInfo {
+    pub source_client_id: Option<ClientId>,
+    pub beat_position: f64,
+    pub bpm: f64,
+    pub playing: bool,
+    pub received_at_ms: u64,
+}
+
+struct SyncState {
+    beat_position: f64,
+    bpm: f64,
+    playing: bool,
+    received_at_ms: u64,
+}
+
+impl Default for SyncState {
+    fn default() -> Self {
+        Self {
+            beat_position: 0.0,
+            bpm: 120.0,
+            playing: false,
+            received_at_ms: 0,
+        }
+    }
+}
+
 struct ClientState {
     info: ClientInfo,
     sender: std::sync::mpsc::Sender<String>,
@@ -29,6 +56,8 @@ struct ClientState {
 pub struct WsServer {
     clients: Arc<RwLock<HashMap<ClientId, ClientState>>>,
     _next_id: Arc<AtomicU64>,
+    sync_source: Arc<RwLock<Option<ClientId>>>,
+    sync_state: Arc<RwLock<SyncState>>,
 }
 
 impl WsServer {
@@ -36,14 +65,18 @@ impl WsServer {
         let clients: Arc<RwLock<HashMap<ClientId, ClientState>>> =
             Arc::new(RwLock::new(HashMap::new()));
         let next_id = Arc::new(AtomicU64::new(1));
+        let sync_source = Arc::new(RwLock::new(None));
+        let sync_state = Arc::new(RwLock::new(SyncState::default()));
 
         let server = Self {
             clients: clients.clone(),
             _next_id: next_id.clone(),
+            sync_source: sync_source.clone(),
+            sync_state: sync_state.clone(),
         };
 
         std::thread::spawn(move || {
-            Self::accept_loop(port, clients, next_id);
+            Self::accept_loop(port, clients, next_id, sync_source, sync_state);
         });
 
         server
@@ -53,6 +86,8 @@ impl WsServer {
         port: u16,
         clients: Arc<RwLock<HashMap<ClientId, ClientState>>>,
         next_id: Arc<AtomicU64>,
+        sync_source: Arc<RwLock<Option<ClientId>>>,
+        sync_state: Arc<RwLock<SyncState>>,
     ) {
         let addr = format!("127.0.0.1:{port}");
         let listener = match TcpListener::bind(&addr) {
@@ -71,10 +106,12 @@ impl WsServer {
             };
 
             let clients = clients.clone();
+            let sync_source = sync_source.clone();
+            let sync_state = sync_state.clone();
             let client_id = next_id.fetch_add(1, Ordering::Relaxed);
 
             std::thread::spawn(move || {
-                Self::handle_client(stream, client_id, clients);
+                Self::handle_client(stream, client_id, clients, sync_source, sync_state);
             });
         }
     }
@@ -83,6 +120,8 @@ impl WsServer {
         stream: std::net::TcpStream,
         client_id: ClientId,
         clients: Arc<RwLock<HashMap<ClientId, ClientState>>>,
+        sync_source: Arc<RwLock<Option<ClientId>>>,
+        sync_state: Arc<RwLock<SyncState>>,
     ) {
         let mut ws = match tungstenite::accept(stream) {
             Ok(ws) => ws,
@@ -122,7 +161,7 @@ impl WsServer {
             // Drain outbound messages
             while let Ok(msg) = out_rx.try_recv() {
                 if ws.send(Message::Text(msg)).is_err() {
-                    Self::remove_client(&clients, client_id);
+                    Self::remove_client(&clients, client_id, &sync_source, &sync_state);
                     return;
                 }
             }
@@ -131,9 +170,9 @@ impl WsServer {
             match ws.read() {
                 Ok(Message::Text(text)) => {
                     if let Ok(plugin_msg) = serde_json::from_str::<PluginMessage>(&text) {
-                        let mut map = clients.write().unwrap();
                         match plugin_msg {
                             PluginMessage::Register { name, version } => {
+                                let mut map = clients.write().unwrap();
                                 let unique_name = Self::deduplicate_name(&name, client_id, &map);
                                 if let Some(client) = map.get_mut(&client_id) {
                                     client.info.version = version;
@@ -145,9 +184,21 @@ impl WsServer {
                                     }
                                     client.info.name = unique_name;
                                     eprintln!("WsServer: client {client_id} registered as \"{}\"", client.info.name);
+
+                                    // Auto-assign as sync source if none exists
+                                    let mut source = sync_source.write().unwrap();
+                                    if source.is_none() {
+                                        *source = Some(client_id);
+                                        let start_msg = AppMessage::StartSync;
+                                        if let Ok(json) = serde_json::to_string(&start_msg) {
+                                            let _ = client.sender.send(json);
+                                        }
+                                        eprintln!("WsServer: auto-assigned client {client_id} as sync source");
+                                    }
                                 }
                             }
                             PluginMessage::Transport { bpm, playing, program } => {
+                                let mut map = clients.write().unwrap();
                                 if let Some(client) = map.get_mut(&client_id) {
                                     client.info.bpm = bpm;
                                     client.info.playing = playing;
@@ -157,6 +208,20 @@ impl WsServer {
                             PluginMessage::ClipAck { clip_id } => {
                                 eprintln!("WsServer: client {client_id} acked clip \"{clip_id}\"");
                             }
+                            PluginMessage::TimeSync { beat_position, bpm, playing } => {
+                                let is_source = sync_source.read().unwrap().map_or(false, |id| id == client_id);
+                                if is_source {
+                                    let now_ms = std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap_or_default()
+                                        .as_millis() as u64;
+                                    let mut state = sync_state.write().unwrap();
+                                    state.beat_position = beat_position;
+                                    state.bpm = bpm;
+                                    state.playing = playing;
+                                    state.received_at_ms = now_ms;
+                                }
+                            }
                         }
                     }
                 }
@@ -165,7 +230,7 @@ impl WsServer {
                 }
                 Ok(Message::Close(_)) => {
                     eprintln!("WsServer: client {client_id} closed connection");
-                    Self::remove_client(&clients, client_id);
+                    Self::remove_client(&clients, client_id, &sync_source, &sync_state);
                     return;
                 }
                 Err(tungstenite::Error::Io(ref e))
@@ -176,7 +241,7 @@ impl WsServer {
                 }
                 Err(_) => {
                     eprintln!("WsServer: client {client_id} disconnected");
-                    Self::remove_client(&clients, client_id);
+                    Self::remove_client(&clients, client_id, &sync_source, &sync_state);
                     return;
                 }
                 _ => {}
@@ -222,9 +287,31 @@ impl WsServer {
     fn remove_client(
         clients: &Arc<RwLock<HashMap<ClientId, ClientState>>>,
         client_id: ClientId,
+        sync_source: &Arc<RwLock<Option<ClientId>>>,
+        sync_state: &Arc<RwLock<SyncState>>,
     ) {
         let mut map = clients.write().unwrap();
         map.remove(&client_id);
+
+        // Auto-failover if this was the sync source
+        let mut source = sync_source.write().unwrap();
+        if *source == Some(client_id) {
+            *source = None;
+            *sync_state.write().unwrap() = SyncState::default();
+
+            // Promote another client (prefer one that's playing)
+            let new_source = map.iter()
+                .find(|(_, c)| c.info.playing)
+                .or_else(|| map.iter().next());
+            if let Some((&new_id, new_client)) = new_source {
+                *source = Some(new_id);
+                let msg = AppMessage::StartSync;
+                if let Ok(json) = serde_json::to_string(&msg) {
+                    let _ = new_client.sender.send(json);
+                }
+                eprintln!("WsServer: sync source failover to client {new_id} ({})", new_client.info.name);
+            }
+        }
     }
 
     // -- Public API for Tauri commands --
@@ -272,5 +359,56 @@ impl WsServer {
             .sender
             .send(json)
             .map_err(|e| format!("Failed to send: {e}"))
+    }
+
+    pub fn set_sync_source(&self, client_id: ClientId) -> Result<(), String> {
+        let map = self.clients.read().unwrap();
+
+        // Stop current sync source
+        {
+            let mut source = self.sync_source.write().unwrap();
+            if let Some(old_id) = *source {
+                if let Some(old_client) = map.get(&old_id) {
+                    let msg = AppMessage::StopSync;
+                    if let Ok(json) = serde_json::to_string(&msg) {
+                        let _ = old_client.sender.send(json);
+                    }
+                }
+            }
+            *source = Some(client_id);
+        }
+
+        // Start new sync source
+        let client = map.get(&client_id)
+            .ok_or_else(|| format!("Client {client_id} not found"))?;
+        let msg = AppMessage::StartSync;
+        let json = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+        client.sender.send(json).map_err(|e| format!("Failed to send: {e}"))
+    }
+
+    pub fn clear_sync_source(&self) {
+        let map = self.clients.read().unwrap();
+        let mut source = self.sync_source.write().unwrap();
+        if let Some(old_id) = source.take() {
+            if let Some(old_client) = map.get(&old_id) {
+                let msg = AppMessage::StopSync;
+                if let Ok(json) = serde_json::to_string(&msg) {
+                    let _ = old_client.sender.send(json);
+                }
+            }
+        }
+        *self.sync_state.write().unwrap() = SyncState::default();
+    }
+
+    pub fn get_sync_state(&self) -> SyncStateInfo {
+        let source = self.sync_source.read().unwrap();
+        let state = self.sync_state.read().unwrap();
+        SyncStateInfo {
+            source_client_id: *source,
+            beat_position: state.beat_position,
+            bpm: state.bpm,
+            playing: state.playing,
+            received_at_ms: state.received_at_ms,
+        }
     }
 }

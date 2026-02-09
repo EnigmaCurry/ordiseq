@@ -122,6 +122,10 @@ struct OrdiseqPlug {
     last_reported_playing: bool,
     last_reported_program: i32,
     was_connected: bool,
+
+    // Time sync streaming
+    sync_enabled: Arc<AtomicBool>,
+    sync_sample_counter: u64,
 }
 
 impl Default for OrdiseqPlug {
@@ -144,6 +148,8 @@ impl Default for OrdiseqPlug {
             last_reported_playing: false,
             last_reported_program: -1,
             was_connected: false,
+            sync_enabled: Arc::new(AtomicBool::new(false)),
+            sync_sample_counter: 0,
         }
     }
 }
@@ -183,6 +189,7 @@ impl OrdiseqPlug {
             self.connection_status.clone(),
             self.ws_stop_flag.clone(),
             self.params.plugin_state.clone(),
+            self.sync_enabled.clone(),
         );
 
         self.ws_outbox = Some(outbox_tx);
@@ -217,8 +224,8 @@ impl OrdiseqPlug {
                     }
                     self.needs_host_notify.store(true, Ordering::Relaxed);
                 }
-                AppMessage::Ping => {
-                    // No action needed
+                AppMessage::Ping | AppMessage::StartSync | AppMessage::StopSync => {
+                    // Handled on WS thread, no action needed here
                 }
             }
         }
@@ -426,6 +433,38 @@ impl Plugin for OrdiseqPlug {
 
         // Report transport to app
         self.report_transport(bpm, playing);
+
+        // Stream TimeSync at ~20Hz when this plugin is the sync source
+        if self.sync_enabled.load(Ordering::Relaxed) {
+            let buffer_samples = _buffer.samples() as u64;
+            if playing {
+                let samples_per_sync = (self.sample_rate / 20.0) as u64;
+                self.sync_sample_counter += buffer_samples;
+                if self.sync_sample_counter >= samples_per_sync {
+                    self.sync_sample_counter = 0;
+                    let beat_pos = transport.pos_beats().unwrap_or_else(|| {
+                        self.samples_elapsed as f64 / self.sample_rate as f64 * bpm / 60.0
+                    });
+                    if let Some(tx) = &self.ws_outbox {
+                        let _ = tx.try_send(PluginMessage::TimeSync {
+                            beat_position: beat_pos,
+                            bpm,
+                            playing: true,
+                        });
+                    }
+                }
+            } else if self.was_playing {
+                // Transport just stopped: send one final sync with playing=false
+                if let Some(tx) = &self.ws_outbox {
+                    let _ = tx.try_send(PluginMessage::TimeSync {
+                        beat_position: 0.0,
+                        bpm,
+                        playing: false,
+                    });
+                }
+                self.sync_sample_counter = 0;
+            }
+        }
 
         // If not playing, stop notes and reset
         if !playing {

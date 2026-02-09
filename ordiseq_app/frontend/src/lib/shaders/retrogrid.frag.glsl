@@ -7,6 +7,8 @@ uniform float u_speed;    // 0.0 to 2.0 - movement speed
 uniform float u_zoom;     // 0.5 to 2.0 - zoom level (affects central area size)
 uniform float u_fisheye;  // 0.0 to 1.0 - blend between perspective (0) and fisheye (1)
 uniform float u_bpm;      // beats per minute - drives movement speed
+uniform float u_beat;     // continuous beat position from DAW
+uniform float u_playing;  // 1.0 = playing, 0.0 = stopped
 uniform vec3 u_color1;    // Grid color 1
 uniform vec3 u_color2;    // Grid color 2
 uniform vec3 u_color3;    // Grid color 3
@@ -57,9 +59,10 @@ void main() {
       float x = tilted.x * t;
       float z = tilted.z * t;
 
-      // Camera movement scaled by BPM
+      // Camera movement scaled by BPM (beat-synced when playing)
       float tempo = u_bpm / 120.0;
-      z += u_time * u_speed * 5.0 * tempo;
+      float movement = mix(u_time * u_speed * 5.0 * tempo, u_beat * u_speed * 5.0, u_playing);
+      z += movement;
 
       // Grid
       float gridSize = 1.0;
@@ -91,7 +94,7 @@ void main() {
       float grid = min(1.0, hLine + vLine);
 
       // Distance fade
-      float dist = length(vec2(x, z - u_time * u_speed * 5.0 * tempo));
+      float dist = length(vec2(x, z - movement));
       float fade = 1.0 - smoothstep(5.0, 30.0, dist);
       grid *= fade;
 

@@ -12,7 +12,7 @@ use tauri::Manager;
 use tauri_plugin_store::StoreExt;
 
 use commands::{clip_to_midi_file, generate_midi, get_playback_status, play_midi, stop_midi};
-use ws_commands::{get_clients, rename_client, send_clip_to_client};
+use ws_commands::{clear_sync_source, get_clients, get_sync_state, rename_client, send_clip_to_client, set_sync_source};
 
 fn main() {
     tauri::Builder::default()
@@ -43,6 +43,9 @@ fn main() {
             get_clients,
             send_clip_to_client,
             rename_client,
+            set_sync_source,
+            clear_sync_source,
+            get_sync_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

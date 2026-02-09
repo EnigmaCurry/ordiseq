@@ -18,6 +18,11 @@ pub enum PluginMessage {
     ClipAck {
         clip_id: String,
     },
+    TimeSync {
+        beat_position: f64,
+        bpm: f64,
+        playing: bool,
+    },
 }
 
 // -- App -> Plugin --
@@ -35,6 +40,8 @@ pub enum AppMessage {
         name: String,
     },
     Ping,
+    StartSync,
+    StopSync,
 }
 
 // -- Shared Types --

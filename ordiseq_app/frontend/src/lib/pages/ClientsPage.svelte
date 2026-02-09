@@ -14,6 +14,7 @@
     type SequencerType,
     type EuclidRow,
   } from "../clientsStore";
+  import { syncState, beatPosition } from "../transportStore";
   import type { MidiInfo } from "../types";
   import { invoke } from "@tauri-apps/api/core";
   import Dial from "../Dial.svelte";
@@ -255,10 +256,13 @@
           </div>
 
           <div class="client-info">
-            <div class="info-row">
-              <span class="label">BPM:</span>
-              <span class="value">{client.bpm > 0 ? client.bpm.toFixed(1) : "—"}</span>
-            </div>
+            {#if $syncState.source_client_id === client.id}
+              <div class="info-row">
+                <span class="beat-dot" style="opacity: {0.15 + 0.85 * Math.max(0, Math.cos(($beatPosition % 1.0) * 2 * Math.PI))}"></span>
+                <span class="label">BPM:</span>
+                <span class="value">{client.bpm > 0 ? client.bpm.toFixed(1) : "—"}</span>
+              </div>
+            {/if}
             <div class="info-row">
               <span class="label">Transport:</span>
               <span class="value transport" class:playing={client.playing}>
@@ -454,6 +458,16 @@
 
   .transport.playing {
     color: rgb(80, 200, 80);
+  }
+
+  .beat-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: rgb(80, 200, 80);
+    margin-right: 4px;
+    flex-shrink: 0;
   }
 
   /* Sequencer section */

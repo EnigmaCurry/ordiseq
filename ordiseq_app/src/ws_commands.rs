@@ -1,5 +1,5 @@
 use crate::protocol::MidiClip;
-use crate::ws_server::{ClientInfo, WsServer};
+use crate::ws_server::{ClientInfo, SyncStateInfo, WsServer};
 use tauri::State;
 
 #[tauri::command]
@@ -28,4 +28,19 @@ pub fn rename_client(
     name: String,
 ) -> Result<(), String> {
     server.rename_client(client_id, &name)
+}
+
+#[tauri::command]
+pub fn set_sync_source(server: State<WsServer>, client_id: u64) -> Result<(), String> {
+    server.set_sync_source(client_id)
+}
+
+#[tauri::command]
+pub fn clear_sync_source(server: State<WsServer>) {
+    server.clear_sync_source()
+}
+
+#[tauri::command]
+pub fn get_sync_state(server: State<WsServer>) -> SyncStateInfo {
+    server.get_sync_state()
 }

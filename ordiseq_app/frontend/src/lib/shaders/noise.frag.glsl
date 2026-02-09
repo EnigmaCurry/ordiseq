@@ -3,6 +3,8 @@ precision highp float;
 uniform float u_time;
 uniform vec2 u_resolution;
 uniform float u_bpm;
+uniform float u_beat;
+uniform float u_playing;
 uniform vec3 u_color1;
 uniform vec3 u_color2;
 uniform vec3 u_color3;
@@ -27,7 +29,7 @@ float noise(vec2 p) {
 void main() {
   vec2 uv = gl_FragCoord.xy / u_resolution;
   float tempo = u_bpm / 120.0;
-  float t = u_time * 0.2 * tempo;
+  float t = mix(u_time * 0.2 * tempo, u_beat * 0.2, u_playing);
 
   float n = noise(uv * 5.0 + t) * 0.5;
   n += noise(uv * 10.0 - t * 0.5) * 0.25;

@@ -6,7 +6,7 @@
   import ClientsPage from "./lib/pages/ClientsPage.svelte";
   import { currentPage } from "./lib/router";
   import { setUniforms, shaderConfig } from "./lib/shaderStore";
-  import { clients } from "./lib/clientsStore";
+  import { beatPosition, transportBpm, transportPlaying } from "./lib/transportStore";
   import { get } from "svelte/store";
 
   // Store the user's overlay setting
@@ -35,13 +35,16 @@
     previousPage = page;
   });
 
-  // Derive BPM from connected clients and push to shaders
+  // Push transport sync state into shader uniforms
   $effect(() => {
-    const cl = $clients;
-    const connected = cl.find((c) => c.connected && c.bpm > 0);
-    if (connected) {
-      setUniforms({ u_bpm: connected.bpm });
-    }
+    const beat = $beatPosition;
+    const bpm = $transportBpm;
+    const playing = $transportPlaying;
+    setUniforms({
+      u_beat: beat,
+      u_bpm: bpm,
+      u_playing: playing ? 1.0 : 0.0,
+    });
   });
 </script>
 

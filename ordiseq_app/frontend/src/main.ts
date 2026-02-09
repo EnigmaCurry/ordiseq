@@ -8,6 +8,7 @@ import { loadAlwaysOnTop, loadIconShape, loadShaderSettings } from "./lib/settin
 import { applyIcon } from "./lib/iconGenerator";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { startPolling } from "./lib/clientsStore";
+import { startTransportSync } from "./lib/transportStore";
 
 // Initialize app after loading settings
 async function init() {
@@ -48,8 +49,11 @@ async function init() {
   // Subscribe to theme colors and apply them
   themeColors.subscribe(applyTheme);
 
-  // Start polling for connected clients (provides BPM to shaders)
+  // Start polling for connected clients
   startPolling();
+
+  // Start transport sync (beat position interpolation for shaders)
+  startTransportSync();
 
   // Bring window to front after everything is mounted
   if (alwaysOnTop) {

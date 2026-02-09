@@ -3,6 +3,8 @@ precision highp float;
 uniform float u_time;
 uniform vec2 u_resolution;
 uniform float u_bpm;
+uniform float u_beat;
+uniform float u_playing;
 uniform vec3 u_color1;
 uniform vec3 u_color2;
 uniform vec3 u_color3;
@@ -44,13 +46,15 @@ void main() {
   // Each column has its own speed and phase, scaled by BPM
   float colSeed = hash(vec2(cell.x, 0.0));
   float tempo = u_bpm / 120.0;
+  // Beat-synced time: use beat position when playing, wall-clock otherwise
+  float syncTime = mix(u_time, u_beat / tempo, u_playing);
   float speed = (3.0 + colSeed * 5.0) * tempo;
   float phase = colSeed * 100.0;
 
   // Stream head position (in row units, moving downward)
   // Flip y: row 0 is bottom in GL, so invert
   float invRow = rows - cell.y;
-  float headPos = mod(u_time * speed + phase, rows + 20.0);
+  float headPos = mod(syncTime * speed + phase, rows + 20.0);
   float dist = headPos - invRow;
 
   // Stream length varies per column
@@ -63,7 +67,7 @@ void main() {
   }
 
   // Character changes over time, flicker rate scales with BPM
-  float charSeed = hash(cell + floor(u_time * (2.0 + colSeed * 3.0) * tempo));
+  float charSeed = hash(cell + floor(syncTime * (2.0 + colSeed * 3.0) * tempo));
 
   float g = glyph(cellUV, charSeed);
 
