@@ -41,6 +41,11 @@ async function init() {
   // Subscribe to theme colors and apply them
   themeColors.subscribe(applyTheme);
 
+  // Bring window to front after everything is mounted
+  if (alwaysOnTop) {
+    await getCurrentWindow().setFocus();
+  }
+
   return { app, shaderBackground };
 }
 

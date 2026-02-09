@@ -98,19 +98,25 @@
     selectedShaderName.set(key);
     setShader(exampleShaders[key]);
 
-    // Set default uniforms for retrogrid
+    // Always apply global uniforms (overlay + colors)
+    const globalUniforms: Record<string, number | number[]> = {
+      u_overlay: overlay,
+      u_color1: hexToRgb(color1),
+      u_color2: hexToRgb(color2),
+      u_color3: hexToRgb(color3),
+      u_color4: hexToRgb(color4),
+    };
+
     if (key === "retrogrid") {
       setUniforms({
+        ...globalUniforms,
         u_pitch: pitch,
         u_speed: speed,
         u_zoom: zoom,
         u_fisheye: fisheye,
-        u_overlay: overlay,
-        u_color1: hexToRgb(color1),
-        u_color2: hexToRgb(color2),
-        u_color3: hexToRgb(color3),
-        u_color4: hexToRgb(color4),
       });
+    } else {
+      setUniforms(globalUniforms);
     }
     persistSettings();
   }
@@ -199,6 +205,63 @@
   <div class="settings-section">
     <h2>Appearance</h2>
 
+    <div class="shader-settings">
+      <div class="field">
+        <label for="overlay">
+          Overlay
+          <span class="value">{overlay.toFixed(2)}</span>
+        </label>
+        <input
+          type="range"
+          id="overlay"
+          min="0"
+          max="1"
+          step="0.01"
+          value={overlay}
+          oninput={updateOverlay}
+        />
+      </div>
+
+      <div class="color-grid">
+        <div class="color-field">
+          <label for="color1">Color 1</label>
+          <input
+            type="color"
+            id="color1"
+            value={color1}
+            oninput={(e) => updateColor(1, e)}
+          />
+        </div>
+        <div class="color-field">
+          <label for="color2">Color 2</label>
+          <input
+            type="color"
+            id="color2"
+            value={color2}
+            oninput={(e) => updateColor(2, e)}
+          />
+        </div>
+        <div class="color-field">
+          <label for="color3">Color 3</label>
+          <input
+            type="color"
+            id="color3"
+            value={color3}
+            oninput={(e) => updateColor(3, e)}
+          />
+        </div>
+        <div class="color-field">
+          <label for="color4">Color 4</label>
+          <input
+            type="color"
+            id="color4"
+            value={color4}
+            oninput={(e) => updateColor(4, e)}
+          />
+        </div>
+      </div>
+    </div>
+
     <div class="field">
       <label for="shader">Background Shader</label>
       <select id="shader" value={selectedShader} onchange={handleShaderChange}>
@@ -284,61 +347,6 @@
             value={animated ? baseFisheye : fisheye}
             oninput={updateFisheye}
           />
-        </div>
-
-        <div class="field">
-          <label for="overlay">
-            Overlay
-            <span class="value">{overlay.toFixed(2)}</span>
-          </label>
-          <input
-            type="range"
-            id="overlay"
-            min="0"
-            max="1"
-            step="0.01"
-            value={overlay}
-            oninput={updateOverlay}
-          />
-        </div>
-
-        <div class="color-grid">
-          <div class="color-field">
-            <label for="color1">Color 1</label>
-            <input
-              type="color"
-              id="color1"
-              value={color1}
-              oninput={(e) => updateColor(1, e)}
-            />
-          </div>
-          <div class="color-field">
-            <label for="color2">Color 2</label>
-            <input
-              type="color"
-              id="color2"
-              value={color2}
-              oninput={(e) => updateColor(2, e)}
-            />
-          </div>
-          <div class="color-field">
-            <label for="color3">Color 3</label>
-            <input
-              type="color"
-              id="color3"
-              value={color3}
-              oninput={(e) => updateColor(3, e)}
-            />
-          </div>
-          <div class="color-field">
-            <label for="color4">Color 4</label>
-            <input
-              type="color"
-              id="color4"
-              value={color4}
-              oninput={(e) => updateColor(4, e)}
-            />
-          </div>
         </div>
       </div>
     {/if}

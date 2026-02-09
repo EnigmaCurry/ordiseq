@@ -86,7 +86,7 @@
     <span class="compact-sep">&middot;</span>
     <span class="compact-detail">{midiInfo.note_count} notes</span>
     <span class="compact-sep">&middot;</span>
-    <span class="compact-hint">Drag to export 10x loop</span>
+    <span class="compact-hint">Drag to export 2x loop</span>
   </div>
   {#if error}
     <div class="error">{error}</div>

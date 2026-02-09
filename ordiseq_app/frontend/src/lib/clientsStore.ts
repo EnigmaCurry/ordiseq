@@ -164,7 +164,7 @@ export function euclideanToClip(rows: EuclidRow[]): MidiClip {
     for (let step = 0; step < totalSteps; step++) {
       const si = step % row.length;
       if (pattern[si]) {
-        const vel = rotatedAccent[si] ? 1.0 : baseVel;
+        const vel = rotatedAccent[si] && baseVel > 0 ? 1.0 : baseVel;
         if (vel > 0) {
           notes.push({
             note: row.note,

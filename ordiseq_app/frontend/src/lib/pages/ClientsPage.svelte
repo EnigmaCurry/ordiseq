@@ -260,11 +260,11 @@
                 {/if}
                 <div class="euclid-header-row">
                   <span class="euclid-col note-col">Note</span>
-                  <span class="euclid-col">Length</span>
+                  <span class="euclid-col">Steps</span>
                   <span class="euclid-col">Hits</span>
                   <span class="euclid-col">Accents</span>
-                  <span class="euclid-col">Rotation</span>
                   <span class="euclid-col">Velocity</span>
+                  <span class="euclid-col">Rotate</span>
                   <span class="euclid-col btn-col"></span>
                 </div>
 
@@ -288,12 +288,12 @@
                         onchange={(v) => updateRow(client.id, i, "accents", v)} />
                     </span>
                     <span class="euclid-col dial-col">
-                      <Dial value={row.rotation} min={0} max={Math.max(0, row.length - 1)}
-                        onchange={(v) => updateRow(client.id, i, "rotation", v)} />
-                    </span>
-                    <span class="euclid-col dial-col">
                       <Dial value={row.velocity} min={0} max={127}
                         onchange={(v) => updateRow(client.id, i, "velocity", v)} />
+                    </span>
+                    <span class="euclid-col dial-col">
+                      <Dial value={row.rotation} min={0} max={Math.max(0, row.length - 1)}
+                        onchange={(v) => updateRow(client.id, i, "rotation", v)} />
                     </span>
                     <span class="euclid-col btn-col">
                       {#if getRows(client.id).length > 1}
@@ -301,7 +301,7 @@
                       {/if}
                     </span>
                   </div>
-                  <div class="pattern-row">
+                  <div class="pattern-row" class:single-step={getPattern(row).length === 1}>
                     {#each getPattern(row) as step}
                       <span class="step-dot" class:active={step !== "off"} class:accent={step === "accent"}></span>
                     {/each}
@@ -488,10 +488,14 @@
 
   .pattern-row {
     display: flex;
-    gap: 2px;
     align-items: center;
-    flex-wrap: wrap;
+    justify-content: space-between;
+    width: 100%;
     padding: 0 0 0.3rem 0;
+  }
+
+  .pattern-row.single-step {
+    justify-content: center;
   }
 
   .step-dot {

@@ -176,7 +176,7 @@ pub fn get_playback_status() -> PlaybackStatus {
 
 #[tauri::command]
 pub fn clip_to_midi_file(clip: MidiClip) -> Result<MidiResult, String> {
-    const REPEATS: u32 = 10;
+    const REPEATS: u32 = 2;
     let mut raw_notes = Vec::with_capacity(clip.notes.len() * REPEATS as usize);
     for rep in 0..REPEATS {
         let offset = rep as f32 * clip.length_beats;
