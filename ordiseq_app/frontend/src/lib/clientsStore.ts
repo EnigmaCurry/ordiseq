@@ -25,6 +25,8 @@ export interface ClipNote {
   duration_beats: number;
 }
 
+export type StepState = "off" | "hit" | "accent";
+
 export interface EuclidRow {
   note: number;
   length: number;
@@ -32,6 +34,7 @@ export interface EuclidRow {
   rotation: number;
   accents: number;   // 0..hits, euclidean accent count
   velocity: number;  // base velocity 0-127
+  manualPattern?: StepState[];  // present = manual edit mode
 }
 
 export type SequencerType = "none" | "euclidean";
@@ -148,28 +151,39 @@ export function euclideanToClip(rows: EuclidRow[]): MidiClip {
     const row = rows[i];
     const baseVel = (row.velocity ?? 100) / 127;
 
-    // Apply accents before rotation: assign accent to each hit, then rotate the combined pattern
-    const hitPattern = bjorklund(row.length, row.hits);
-    const accentPattern = row.accents > 0 ? bjorklund(row.hits, row.accents) : [];
-    // Build per-step accent map on unrotated pattern
-    const stepAccent: boolean[] = [];
-    let hitIdx = 0;
-    for (let s = 0; s < row.length; s++) {
-      if (hitPattern[s]) {
-        stepAccent.push(accentPattern.length > 0 && accentPattern[hitIdx % accentPattern.length]);
-        hitIdx++;
+    // Determine per-step pattern: manual or euclidean
+    let stepPattern: StepState[];
+    if (row.manualPattern) {
+      stepPattern = row.manualPattern;
+    } else {
+      // Apply accents before rotation: assign accent to each hit, then rotate the combined pattern
+      const hitPattern = bjorklund(row.length, row.hits);
+      const accentPattern = row.accents > 0 ? bjorklund(row.hits, row.accents) : [];
+      const combined: StepState[] = [];
+      let hitIdx = 0;
+      for (let s = 0; s < row.length; s++) {
+        if (!hitPattern[s]) {
+          combined.push("off");
+        } else {
+          const isAccent = accentPattern.length > 0 && accentPattern[hitIdx % accentPattern.length];
+          combined.push(isAccent ? "accent" : "hit");
+          hitIdx++;
+        }
+      }
+      // Rotate the combined result
+      if (row.rotation === 0 || combined.length === 0) {
+        stepPattern = combined;
       } else {
-        stepAccent.push(false);
+        const r = ((row.rotation % combined.length) + combined.length) % combined.length;
+        stepPattern = [...combined.slice(r), ...combined.slice(0, r)];
       }
     }
-    // Rotate both pattern and accent map together
-    const pattern = rotatePattern(hitPattern, row.rotation);
-    const rotatedAccent = rotatePattern(stepAccent, row.rotation);
 
     for (let step = 0; step < totalSteps; step++) {
       const si = step % row.length;
-      if (pattern[si]) {
-        const vel = rotatedAccent[si] && baseVel > 0 ? 1.0 : baseVel;
+      const state = stepPattern[si];
+      if (state !== "off") {
+        const vel = state === "accent" && baseVel > 0 ? 1.0 : baseVel;
         if (vel > 0) {
           notes.push({
             note: row.note,
@@ -241,6 +255,7 @@ export function loadConfigForClient(name: string, program: number = 1): StoredCo
     rotation: r.rotation,
     accents: r.accents ?? 0,
     velocity: r.velocity ?? 100,
+    ...(r.manualPattern ? { manualPattern: r.manualPattern } : {}),
   }));
   return config;
 }

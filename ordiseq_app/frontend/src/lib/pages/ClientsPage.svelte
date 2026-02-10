@@ -14,6 +14,7 @@
     type ClientInfo,
     type SequencerType,
     type EuclidRow,
+    type StepState,
   } from "../clientsStore";
   import { syncState, beatPosition, transportPlaying } from "../transportStore";
   import type { MidiInfo } from "../types";
@@ -231,13 +232,18 @@
     return Math.floor((beat / 0.25) % row.length);
   }
 
+  function isManualMode(row: EuclidRow): boolean {
+    return row.manualPattern != null;
+  }
+
   /** Returns per-step info: "off" | "hit" | "accent".
-   *  Accents are applied before rotation so they stay tied to specific hits. */
-  function getPattern(row: EuclidRow): ("off" | "hit" | "accent")[] {
+   *  Uses manualPattern if present, otherwise computes via Bjorklund. */
+  function getPattern(row: EuclidRow): StepState[] {
+    if (row.manualPattern) return row.manualPattern;
+
     const hitPat = bjorklund(row.length, row.hits);
     const accentPat = row.accents > 0 ? bjorklund(row.hits, row.accents) : [];
-    // Build combined pattern before rotation
-    const combined: ("off" | "hit" | "accent")[] = [];
+    const combined: StepState[] = [];
     let hitIndex = 0;
     for (let s = 0; s < hitPat.length; s++) {
       if (!hitPat[s]) {
@@ -248,10 +254,46 @@
         hitIndex++;
       }
     }
-    // Rotate the combined result
     if (row.rotation === 0 || combined.length === 0) return combined;
     const r = ((row.rotation % combined.length) + combined.length) % combined.length;
     return [...combined.slice(r), ...combined.slice(0, r)];
+  }
+
+  function cycleStep(state: StepState): StepState {
+    if (state === "off") return "hit";
+    if (state === "hit") return "accent";
+    return "off";
+  }
+
+  function toggleStep(clientId: number, rowIndex: number, stepIdx: number) {
+    const rows = euclideanRows[clientId];
+    if (!rows) return;
+    const row = { ...rows[rowIndex] };
+
+    if (!row.manualPattern) {
+      // Enter manual mode: snapshot current euclidean pattern
+      row.manualPattern = [...getPattern(row)];
+    }
+
+    row.manualPattern = [...row.manualPattern];
+    row.manualPattern[stepIdx] = cycleStep(row.manualPattern[stepIdx]);
+
+    const newRows = [...rows];
+    newRows[rowIndex] = row;
+    euclideanRows[clientId] = newRows;
+    debouncedSync(clientId);
+  }
+
+  function resetToEuclidean(clientId: number, rowIndex: number) {
+    if (!confirm("Reset to Euclidean mode? Your manual edits will be lost.")) return;
+    const rows = euclideanRows[clientId];
+    if (!rows) return;
+    const row = { ...rows[rowIndex] };
+    delete row.manualPattern;
+    const newRows = [...rows];
+    newRows[rowIndex] = row;
+    euclideanRows[clientId] = newRows;
+    debouncedSync(clientId);
   }
 </script>
 
@@ -352,6 +394,7 @@
                 </div>
 
                 {#each getRows(client.id) as row, i}
+                  {@const manual = isManualMode(row)}
                   <div class="euclid-row">
                     <span class="euclid-col note-col dial-col">
                       <Dial value={row.note} min={0} max={127}
@@ -360,14 +403,20 @@
                     </span>
                     <span class="euclid-col dial-col">
                       <Dial value={row.length} min={1} max={32}
+                        disabled={manual}
+                        ondisabledinteract={() => resetToEuclidean(client.id, i)}
                         onchange={(v) => updateRow(client.id, i, "length", v)} />
                     </span>
                     <span class="euclid-col dial-col">
                       <Dial value={row.hits} min={0} max={row.length}
+                        disabled={manual}
+                        ondisabledinteract={() => resetToEuclidean(client.id, i)}
                         onchange={(v) => updateRow(client.id, i, "hits", v)} />
                     </span>
                     <span class="euclid-col dial-col">
                       <Dial value={row.accents} min={0} max={row.hits}
+                        disabled={manual}
+                        ondisabledinteract={() => resetToEuclidean(client.id, i)}
                         onchange={(v) => updateRow(client.id, i, "accents", v)} />
                     </span>
                     <span class="euclid-col dial-col">
@@ -376,6 +425,8 @@
                     </span>
                     <span class="euclid-col dial-col">
                       <Dial value={row.rotation} min={0} max={Math.max(0, row.length - 1)}
+                        disabled={manual}
+                        ondisabledinteract={() => resetToEuclidean(client.id, i)}
                         onchange={(v) => updateRow(client.id, i, "rotation", v)} />
                     </span>
                     <span class="euclid-col btn-col">
@@ -384,9 +435,13 @@
                       {/if}
                     </span>
                   </div>
-                  <div class="pattern-row" class:single-step={getPattern(row).length === 1}>
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <div class="pattern-row" class:single-step={getPattern(row).length === 1} class:manual-mode={manual}>
                     {#each getPattern(row) as step, stepIdx}
-                      <span class="step-dot" class:active={step !== "off"} class:accent={step === "accent"} class:current={$transportPlaying && stepIdx === getCurrentStep(row, $beatPosition)}></span>
+                      <!-- svelte-ignore a11y_click_events_have_key_events -->
+                      <!-- svelte-ignore a11y_no_static_element_interactions -->
+                      <span class="step-dot clickable" class:active={step !== "off"} class:accent={step === "accent"} class:current={$transportPlaying && stepIdx === getCurrentStep(row, $beatPosition)}
+                        onclick={() => toggleStep(client.id, i, stepIdx)}></span>
                     {/each}
                   </div>
                 {/each}
@@ -611,12 +666,26 @@
     justify-content: center;
   }
 
+  .pattern-row.manual-mode {
+    border-left: 2px solid rgba(255, 220, 80, 0.5);
+    padding-left: 6px;
+  }
+
   .step-dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
     background-color: rgba(255, 255, 255, 0.15);
     flex-shrink: 0;
+    transition: transform 0.1s;
+  }
+
+  .step-dot.clickable {
+    cursor: pointer;
+  }
+
+  .step-dot.clickable:hover {
+    transform: scale(1.5);
   }
 
   .step-dot.active {

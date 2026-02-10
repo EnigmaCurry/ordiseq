@@ -6,9 +6,11 @@
     label?: string;
     formatValue?: (v: number) => string;
     onchange: (value: number) => void;
+    disabled?: boolean;
+    ondisabledinteract?: () => void;
   }
 
-  let { value, min, max, label, formatValue, onchange }: Props = $props();
+  let { value, min, max, label, formatValue, onchange, disabled = false, ondisabledinteract }: Props = $props();
 
   const SIZE = 40;
   const CX = SIZE / 2;
@@ -44,6 +46,10 @@
   let containerEl: HTMLDivElement;
 
   function onPointerDown(e: PointerEvent) {
+    if (disabled) {
+      ondisabledinteract?.();
+      return;
+    }
     dragging = true;
     dragStartY = e.clientY;
     dragStartValue = value;
@@ -68,6 +74,10 @@
 
   function onWheel(e: WheelEvent) {
     e.preventDefault();
+    if (disabled) {
+      ondisabledinteract?.();
+      return;
+    }
     const dir = e.deltaY < 0 ? 1 : -1;
     const newVal = Math.max(min, Math.min(max, value + dir));
     if (newVal !== value) {
@@ -83,6 +93,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="dial"
+  class:disabled
   bind:this={containerEl}
   onpointerdown={onPointerDown}
   onpointermove={onPointerMove}
@@ -126,6 +137,11 @@
     cursor: ns-resize;
     user-select: none;
     touch-action: none;
+  }
+
+  .dial.disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
   }
 
   .dial-value {
