@@ -1,4 +1,4 @@
-use crate::protocol::MidiClip;
+use crate::protocol::{LiveNote, MidiClip};
 use crate::ws_server::{ClientInfo, SyncStateInfo, WsServer};
 use tauri::State;
 
@@ -19,6 +19,33 @@ pub fn send_clip_to_client(
         .unwrap_or_default()
         .as_millis());
     server.send_clip(client_id, clip_id, clip, program)
+}
+
+#[tauri::command]
+pub fn send_live_notes(
+    server: State<WsServer>,
+    client_id: u64,
+    notes: Vec<LiveNote>,
+    duration_beats: f32,
+) -> Result<(), String> {
+    server.send_live_notes(client_id, notes, duration_beats)
+}
+
+#[tauri::command]
+pub fn trigger_live_chord(
+    server: State<WsServer>,
+    client_id: u64,
+    root_midi: u8,
+    chord_type: String,
+) -> Result<Vec<u8>, String> {
+    let midi_notes = ordiseq::chord::get_chord_notes(root_midi, &chord_type);
+    let notes: Vec<LiveNote> = midi_notes.iter().map(|&n| LiveNote {
+        note: n,
+        channel: 0,
+        velocity: 0.8,
+    }).collect();
+    server.send_live_notes(client_id, notes, 0.0)?;
+    Ok(midi_notes)
 }
 
 #[tauri::command]

@@ -46,6 +46,17 @@ pub enum AppMessage {
     Ping,
     StartSync,
     StopSync,
+    LiveNotes {
+        notes: Vec<LiveNote>,
+        duration_beats: f32,
+    },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LiveNote {
+    pub note: u8,
+    pub channel: u8,
+    pub velocity: f32,
 }
 
 // -- Shared Types --

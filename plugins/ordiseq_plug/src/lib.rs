@@ -8,7 +8,7 @@ mod names;
 mod protocol;
 mod ws_client;
 
-use protocol::{AppMessage, MidiClip, PluginMessage};
+use protocol::{AppMessage, LiveNote, MidiClip, PluginMessage};
 use ws_client::{STATUS_CONNECTED, STATUS_CONNECTING, STATUS_DISCONNECTED};
 
 const DEFAULT_PORT: u16 = 9850;
@@ -116,6 +116,7 @@ struct ActiveNote {
     channel: u8,
     note: u8,
     off_sample: u64,
+    is_live: bool,
 }
 
 /// Cached analysis of a clip for fill generation.
@@ -171,6 +172,10 @@ struct OrdiseqPlug {
     sync_enabled: Arc<AtomicBool>,
     sync_sample_counter: u64,
 
+    // Live notes received from app (play immediately)
+    pending_live_notes: Vec<(LiveNote, f32)>, // (note, duration_beats)
+    kill_live_notes: bool,
+
     // Fill state
     fill_cache: Option<FillCache>,
     fill_cached_version: u64,
@@ -205,6 +210,8 @@ impl Default for OrdiseqPlug {
             was_connected: false,
             sync_enabled: Arc::new(AtomicBool::new(false)),
             sync_sample_counter: 0,
+            pending_live_notes: Vec::new(),
+            kill_live_notes: false,
             fill_cache: None,
             fill_cached_version: u64::MAX,
             fill_cached_program: usize::MAX,
@@ -293,6 +300,15 @@ impl OrdiseqPlug {
                         state.clip_version += 1;
                     }
                     self.needs_host_notify.store(true, Ordering::Relaxed);
+                }
+                AppMessage::LiveNotes { notes, duration_beats } => {
+                    if notes.is_empty() {
+                        self.kill_live_notes = true;
+                    } else {
+                        for n in notes {
+                            self.pending_live_notes.push((n, duration_beats));
+                        }
+                    }
                 }
                 AppMessage::Ping | AppMessage::StartSync | AppMessage::StopSync => {
                     // Handled on WS thread, no action needed here
@@ -556,11 +572,48 @@ impl Plugin for OrdiseqPlug {
         _aux: &mut AuxiliaryBuffers,
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
+        // Snapshot transport values before mutably borrowing context
         let transport = context.transport();
+        let transport_tempo = transport.tempo;
+        let transport_playing = transport.playing;
+        let transport_pos_beats = transport.pos_beats();
 
         // Poll WebSocket inbox for new clips/renames
         self.poll_ws_inbox();
         self.sync_cached_programs();
+
+        // Emit any pending live notes immediately, or kill on empty signal
+        if self.kill_live_notes || !self.pending_live_notes.is_empty() {
+            self.stop_all_notes(context);
+            self.kill_live_notes = false;
+
+            if !self.pending_live_notes.is_empty() {
+                let sr = self.sample_rate as f64;
+
+                for (ln, dur_beats) in self.pending_live_notes.drain(..) {
+                    context.send_event(NoteEvent::NoteOn {
+                        timing: 0,
+                        voice_id: None,
+                        channel: ln.channel,
+                        note: ln.note,
+                        velocity: ln.velocity.clamp(0.0, 1.0),
+                    });
+                    // duration_beats <= 0 means fixed 1-second duration
+                    let duration_samples = if dur_beats > 0.0 {
+                        let bps = transport_tempo.unwrap_or(DEFAULT_TEMPO_BPM) / 60.0;
+                        (dur_beats as f64 * sr / bps) as u64
+                    } else {
+                        sr as u64
+                    };
+                    self.active_notes.push(ActiveNote {
+                        channel: ln.channel,
+                        note: ln.note,
+                        off_sample: self.samples_elapsed + duration_samples,
+                        is_live: true,
+                    });
+                }
+            }
+        }
 
         // Update fill cache when clip or program changes
         let pgm_for_fill = (self.params.program.value() - 1).max(0) as usize;
@@ -573,8 +626,8 @@ impl Plugin for OrdiseqPlug {
                 .and_then(Self::compute_fill_cache);
         }
 
-        let bpm = transport.tempo.unwrap_or(DEFAULT_TEMPO_BPM);
-        let playing = transport.playing;
+        let bpm = transport_tempo.unwrap_or(DEFAULT_TEMPO_BPM);
+        let playing = transport_playing;
 
         // Report transport to app
         self.report_transport(bpm, playing);
@@ -587,7 +640,7 @@ impl Plugin for OrdiseqPlug {
                 self.sync_sample_counter += buffer_samples;
                 if self.sync_sample_counter >= samples_per_sync {
                     self.sync_sample_counter = 0;
-                    let beat_pos = transport.pos_beats().unwrap_or_else(|| {
+                    let beat_pos = transport_pos_beats.unwrap_or_else(|| {
                         self.samples_elapsed as f64 / self.sample_rate as f64 * bpm / 60.0
                     });
                     if let Some(tx) = &self.ws_outbox {
@@ -629,7 +682,7 @@ impl Plugin for OrdiseqPlug {
         let note_trigger = self.cached_play_modes.get(program_idx).copied().unwrap_or(false);
         let active = if note_trigger { self.held_notes > 0 } else { playing };
 
-        // If not active, stop notes and reset
+        // If not active, stop clip notes and reset — but still process live note-offs
         if !active {
             if self.was_playing {
                 self.stop_all_notes(context);
@@ -637,6 +690,29 @@ impl Plugin for OrdiseqPlug {
                 self.was_playing = false;
                 self.reset_fill_state();
             }
+
+            // Process note-offs for live notes even when transport is stopped
+            if !self.active_notes.is_empty() {
+                let buffer_samples = _buffer.samples() as u64;
+                self.samples_elapsed += buffer_samples;
+                let mut i = 0;
+                while i < self.active_notes.len() {
+                    if self.active_notes[i].off_sample <= self.samples_elapsed {
+                        let note = &self.active_notes[i];
+                        context.send_event(NoteEvent::NoteOff {
+                            timing: 0,
+                            voice_id: None,
+                            channel: note.channel,
+                            note: note.note,
+                            velocity: 0.0,
+                        });
+                        self.active_notes.swap_remove(i);
+                    } else {
+                        i += 1;
+                    }
+                }
+            }
+
             return ProcessStatus::Normal;
         }
 
@@ -647,7 +723,30 @@ impl Plugin for OrdiseqPlug {
         }
         let clip = match self.cached_programs.get(program_idx).and_then(|c| c.as_ref()) {
             Some(c) if !c.notes.is_empty() && c.length_beats > 0.0 => c,
-            _ => return ProcessStatus::Normal,
+            _ => {
+                // No clip, but still process live note-offs
+                if !self.active_notes.is_empty() {
+                    let buffer_samples = _buffer.samples() as u64;
+                    self.samples_elapsed += buffer_samples;
+                    let mut i = 0;
+                    while i < self.active_notes.len() {
+                        if self.active_notes[i].off_sample <= self.samples_elapsed {
+                            let note = &self.active_notes[i];
+                            context.send_event(NoteEvent::NoteOff {
+                                timing: 0,
+                                voice_id: None,
+                                channel: note.channel,
+                                note: note.note,
+                                velocity: 0.0,
+                            });
+                            self.active_notes.swap_remove(i);
+                        } else {
+                            i += 1;
+                        }
+                    }
+                }
+                return ProcessStatus::Normal;
+            }
         };
 
         let sample_rate = self.sample_rate as f64;
@@ -696,6 +795,7 @@ impl Plugin for OrdiseqPlug {
                         channel: clip_note.channel,
                         note: clip_note.note,
                         off_sample: self.samples_elapsed + sample_offset_in_chunk as u64 + duration_samples,
+                        is_live: false,
                     });
                 }
             }
@@ -757,6 +857,7 @@ impl Plugin for OrdiseqPlug {
                                     off_sample: self.samples_elapsed
                                         + sample_offset as u64
                                         + duration_samples,
+                                    is_live: false,
                                 });
 
                                 // Strong heat boost — cascading fills
@@ -806,14 +907,21 @@ impl Plugin for OrdiseqPlug {
 
                 if !self.active_notes.is_empty() {
                     let timing = processed.min(buffer_len - 1) as u32;
-                    for note in self.active_notes.drain(..) {
-                        context.send_event(NoteEvent::NoteOff {
-                            timing,
-                            voice_id: None,
-                            channel: note.channel,
-                            note: note.note,
-                            velocity: 0.0,
-                        });
+                    let mut i = 0;
+                    while i < self.active_notes.len() {
+                        if !self.active_notes[i].is_live {
+                            let note = &self.active_notes[i];
+                            context.send_event(NoteEvent::NoteOff {
+                                timing,
+                                voice_id: None,
+                                channel: note.channel,
+                                note: note.note,
+                                velocity: 0.0,
+                            });
+                            self.active_notes.swap_remove(i);
+                        } else {
+                            i += 1;
+                        }
                     }
                 }
             }

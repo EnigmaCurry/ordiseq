@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use tungstenite::Message;
 
-use crate::protocol::{AppMessage, MidiClip, PluginMessage};
+use crate::protocol::{AppMessage, LiveNote, MidiClip, PluginMessage};
 
 pub type ClientId = u64;
 
@@ -425,6 +425,24 @@ impl WsServer {
             .get(&client_id)
             .ok_or_else(|| format!("Client {client_id} not found"))?;
         let msg = AppMessage::Clip { clip_id, clip, program };
+        let json = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+        client
+            .sender
+            .send(json)
+            .map_err(|e| format!("Failed to send: {e}"))
+    }
+
+    pub fn send_live_notes(
+        &self,
+        client_id: ClientId,
+        notes: Vec<LiveNote>,
+        duration_beats: f32,
+    ) -> Result<(), String> {
+        let map = self.clients.read().unwrap();
+        let client = map
+            .get(&client_id)
+            .ok_or_else(|| format!("Client {client_id} not found"))?;
+        let msg = AppMessage::LiveNotes { notes, duration_beats };
         let json = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
         client
             .sender

@@ -19,6 +19,12 @@
     isBlack: boolean;
   }
 
+  interface ClientInfo {
+    id: number;
+    name: string;
+    connected: boolean;
+  }
+
   let octaveStart = $state(48);
 
   let keys: Key[] = $derived(
@@ -37,12 +43,31 @@
   let whiteKeys: Key[] = $derived(keys.filter((k) => !k.isBlack));
   let blackKeys: Key[] = $derived(keys.filter((k) => k.isBlack));
 
+  // Client selection
+  let clients: ClientInfo[] = $state([]);
+  let selectedClientId: number | null = $state(null);
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+  async function refreshClients() {
+    clients = await invoke<ClientInfo[]>("get_clients");
+    // Auto-select first client if none selected or selected client disconnected
+    if (selectedClientId === null || !clients.some((c) => c.id === selectedClientId)) {
+      selectedClientId = clients.length > 0 ? clients[0].id : null;
+    }
+  }
+
+  $effect(() => {
+    refreshClients();
+    pollTimer = setInterval(refreshClients, 2000);
+    return () => { if (pollTimer) clearInterval(pollTimer); };
+  });
+
   // Selection state
   let selectedRoot: number = $state(0); // pitch class 0-11, default C
   let selectedChordType: string = $state("Major");
   let activeNotes: Set<number> = $state(new Set());
 
-  // Fetch chord notes when root + type are both selected
+  // Display-only: update keyboard visualization when root/type/octave changes
   $effect(() => {
     const rootMidi = octaveStart + selectedRoot;
     invoke<number[]>("get_chord_notes", { rootMidi, chordType: selectedChordType }).then((notes) => {
@@ -64,6 +89,28 @@
       chordNames = names;
     });
   });
+
+  function triggerChord() {
+    if (selectedClientId === null) return;
+    const rootMidi = octaveStart + selectedRoot;
+    invoke<number[]>("trigger_live_chord", {
+      clientId: selectedClientId,
+      rootMidi,
+      chordType: selectedChordType,
+    }).then((notes) => {
+      activeNotes = new Set(notes);
+    }).catch(() => {});
+  }
+
+  function handleRootClick(i: number) {
+    selectedRoot = i;
+    triggerChord();
+  }
+
+  function handleChordTypeClick(ct: string) {
+    selectedChordType = ct;
+    triggerChord();
+  }
 
   function octaveDown() {
     if (octaveStart > 0) octaveStart -= 12;
@@ -103,11 +150,22 @@
           {/if}
         {/if}
       </div>
-      <div class="octave-controls">
-        <span class="octave-label">{octaveLabel}</span>
-        <div class="octave-buttons">
-          <button class="oct-btn" onclick={octaveDown} disabled={octaveStart <= 0}>-</button>
-          <button class="oct-btn" onclick={octaveUp} disabled={octaveStart + NOTE_COUNT >= 128}>+</button>
+      <div class="toolbar-right">
+        <select class="client-select" bind:value={selectedClientId}>
+          {#if clients.length === 0}
+            <option value={null}>No clients</option>
+          {:else}
+            {#each clients as client}
+              <option value={client.id}>{client.name}</option>
+            {/each}
+          {/if}
+        </select>
+        <div class="octave-controls">
+          <span class="octave-label">{octaveLabel}</span>
+          <div class="octave-buttons">
+            <button class="oct-btn" onclick={octaveDown} disabled={octaveStart <= 0}>-</button>
+            <button class="oct-btn" onclick={octaveUp} disabled={octaveStart + NOTE_COUNT >= 128}>+</button>
+          </div>
         </div>
       </div>
     </div>
@@ -118,7 +176,7 @@
           class="root-btn"
           class:active={selectedRoot === i}
           class:black-note={[1, 3, 6, 8, 10].includes(i)}
-          onclick={() => selectedRoot = i}
+          onmousedown={() => handleRootClick(i)}
         >{name}</button>
       {/each}
     </div>
@@ -128,7 +186,7 @@
         <button
           class="chord-btn"
           class:active={selectedChordType === ct}
-          onclick={() => selectedChordType = ct}
+          onmousedown={() => handleChordTypeClick(ct)}
         >{ct}</button>
       {/each}
     </div>
@@ -205,6 +263,26 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .client-select {
+    padding: 4px 6px;
+    font-size: 0.75rem;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    color: rgb(var(--color-3));
+    border: 1px solid rgba(var(--color-3), 0.3);
+    max-width: 150px;
+  }
+
+  .client-select:focus {
+    outline: 1px solid rgb(var(--color-1));
   }
 
   .octave-controls {

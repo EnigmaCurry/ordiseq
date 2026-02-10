@@ -12,7 +12,7 @@ use tauri::Manager;
 use tauri_plugin_store::StoreExt;
 
 use commands::{clip_to_midi_file, detect_chord, generate_midi, get_chord_notes, get_playback_status, play_midi, stop_midi};
-use ws_commands::{clear_sync_source, get_clients, get_listen_port, get_sync_state, rename_client, send_clip_to_client, set_listen_port, set_play_mode, set_sync_source};
+use ws_commands::{clear_sync_source, get_clients, get_listen_port, get_sync_state, rename_client, send_clip_to_client, send_live_notes, set_listen_port, set_play_mode, set_sync_source, trigger_live_chord};
 
 fn main() {
     tauri::Builder::default()
@@ -53,6 +53,8 @@ fn main() {
             get_chord_notes,
             get_clients,
             send_clip_to_client,
+            send_live_notes,
+            trigger_live_chord,
             set_play_mode,
             rename_client,
             set_sync_source,
