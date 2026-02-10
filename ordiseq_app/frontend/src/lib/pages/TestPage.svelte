@@ -4,6 +4,14 @@
   const NOTE_COUNT = 24;
   const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
+  const CHORD_TYPES = [
+    "Major", "Minor", "Dim", "Aug",
+    "Maj7", "7", "m7", "mMaj7",
+    "dim7", "m7b5", "Aug7", "AugMaj7",
+    "9", "Maj9", "m9", "add9",
+    "sus2", "sus4", "6", "m6",
+  ];
+
   interface Key {
     midi: number;
     name: string;
@@ -11,7 +19,7 @@
     isBlack: boolean;
   }
 
-  let octaveStart = $state(48); // C3 default
+  let octaveStart = $state(48);
 
   let keys: Key[] = $derived(
     Array.from({ length: NOTE_COUNT }, (_, i) => {
@@ -29,17 +37,33 @@
   let whiteKeys: Key[] = $derived(keys.filter((k) => !k.isBlack));
   let blackKeys: Key[] = $derived(keys.filter((k) => k.isBlack));
 
+  // Selection state
+  let selectedRoot: number = $state(0); // pitch class 0-11, default C
+  let selectedChordType: string = $state("Major");
   let activeNotes: Set<number> = $state(new Set());
 
-  function toggleNote(midi: number) {
-    const next = new Set(activeNotes);
-    if (next.has(midi)) {
-      next.delete(midi);
-    } else {
-      next.add(midi);
+  // Fetch chord notes when root + type are both selected
+  $effect(() => {
+    const rootMidi = octaveStart + selectedRoot;
+    invoke<number[]>("get_chord_notes", { rootMidi, chordType: selectedChordType }).then((notes) => {
+      activeNotes = new Set(notes);
+    });
+  });
+
+  // Chord name detection from active notes
+  const MAX_CHORDS = 6;
+  let chordNames: string[] = $state([]);
+
+  $effect(() => {
+    const notes = [...activeNotes];
+    if (notes.length < 3) {
+      chordNames = [];
+      return;
     }
-    activeNotes = next;
-  }
+    invoke<string[]>("detect_chord", { midiNotes: notes }).then((names) => {
+      chordNames = names;
+    });
+  });
 
   function octaveDown() {
     if (octaveStart > 0) octaveStart -= 12;
@@ -63,20 +87,6 @@
   }
 
   let octaveLabel: string = $derived(`C${Math.floor(octaveStart / 12) - 1}`);
-
-  const MAX_CHORDS = 6;
-  let chordNames: string[] = $state([]);
-
-  $effect(() => {
-    const notes = [...activeNotes];
-    if (notes.length < 3) {
-      chordNames = [];
-      return;
-    }
-    invoke<string[]>("detect_chord", { midiNotes: notes }).then((names) => {
-      chordNames = names;
-    });
-  });
 </script>
 
 <div class="page">
@@ -102,25 +112,43 @@
       </div>
     </div>
 
+    <div class="root-row">
+      {#each NOTE_NAMES as name, i}
+        <button
+          class="root-btn"
+          class:active={selectedRoot === i}
+          class:black-note={[1, 3, 6, 8, 10].includes(i)}
+          onclick={() => selectedRoot = i}
+        >{name}</button>
+      {/each}
+    </div>
+
+    <div class="chord-grid">
+      {#each CHORD_TYPES as ct}
+        <button
+          class="chord-btn"
+          class:active={selectedChordType === ct}
+          onclick={() => selectedChordType = ct}
+        >{ct}</button>
+      {/each}
+    </div>
+
     <div class="keyboard">
       {#each whiteKeys as key}
-        <button
+        <div
           class="key white"
           class:active={activeNotes.has(key.midi)}
-          onclick={() => toggleNote(key.midi)}
         >
           <span class="label">{key.name}{key.octave}</span>
-        </button>
+        </div>
       {/each}
 
       {#each blackKeys as key}
-        <button
+        <div
           class="key black"
           class:active={activeNotes.has(key.midi)}
           style="left: {blackKeyLeft(key.midi)}%; width: {whiteW * 0.6}%"
-          onclick={() => toggleNote(key.midi)}
-        >
-        </button>
+        ></div>
       {/each}
     </div>
   </div>
@@ -222,21 +250,86 @@
     filter: none;
   }
 
+  /* Root note row */
+  .root-row {
+    display: flex;
+    gap: 3px;
+    margin-bottom: 8px;
+  }
+
+  .root-btn {
+    flex: 1;
+    padding: 6px 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    color: #ccc;
+    border: 1px solid rgba(var(--color-3), 0.2);
+    cursor: pointer;
+    transition: background-color 0.1s ease;
+  }
+
+  .root-btn.black-note {
+    background: rgba(0, 0, 0, 0.3);
+    color: #999;
+  }
+
+  .root-btn:hover {
+    background: rgba(var(--color-3), 0.2);
+  }
+
+  .root-btn.active {
+    background: rgb(var(--color-1));
+    color: #fff;
+    border-color: rgb(var(--color-2));
+  }
+
+  /* Chord type grid */
+  .chord-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 3px;
+    margin-bottom: 10px;
+  }
+
+  .chord-btn {
+    padding: 5px 0;
+    font-size: 0.7rem;
+    font-weight: 600;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #aaa;
+    border: 1px solid rgba(var(--color-3), 0.15);
+    cursor: pointer;
+    transition: background-color 0.1s ease;
+  }
+
+  .chord-btn:hover {
+    background: rgba(var(--color-3), 0.15);
+  }
+
+  .chord-btn.active {
+    background: rgb(var(--color-1));
+    color: #fff;
+    border-color: rgb(var(--color-2));
+  }
+
+  /* Keyboard */
   .keyboard {
     position: relative;
     display: flex;
-    height: 180px;
+    height: 140px;
     overflow: visible;
   }
 
   .key {
     border: none;
-    cursor: pointer;
-    transition: background-color 0.1s ease;
     padding: 0;
     margin: 0;
-    font-size: 0.65rem;
+    font-size: 0.6rem;
     font-weight: 600;
+    transition: background-color 0.1s ease;
   }
 
   .key.white {
@@ -251,16 +344,8 @@
     z-index: 1;
   }
 
-  .key.white:first-child {
-    border-radius: 0 0 4px 4px;
-  }
-
   .key.white:last-child {
     border-right: none;
-  }
-
-  .key.white:hover {
-    background: #d0d0d0;
   }
 
   .key.white.active {
@@ -269,16 +354,9 @@
     border-top: none;
   }
 
-  .key.white.active:hover {
-    background: rgb(var(--color-1));
-    border: 2px solid rgb(var(--color-2));
-    border-top: none;
-    filter: brightness(1.15);
-  }
-
   .label {
     color: #666;
-    padding-bottom: 8px;
+    padding-bottom: 6px;
     pointer-events: none;
   }
 
@@ -295,20 +373,9 @@
     z-index: 2;
   }
 
-  .key.black:hover {
-    background: #444;
-  }
-
   .key.black.active {
     background: rgb(var(--color-1));
     border: 2px solid rgb(var(--color-2));
     border-top: none;
-  }
-
-  .key.black.active:hover {
-    background: rgb(var(--color-1));
-    border: 2px solid rgb(var(--color-2));
-    border-top: none;
-    filter: brightness(1.15);
   }
 </style>

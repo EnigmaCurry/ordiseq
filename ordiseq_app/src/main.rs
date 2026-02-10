@@ -11,7 +11,7 @@ mod ws_server;
 use tauri::Manager;
 use tauri_plugin_store::StoreExt;
 
-use commands::{clip_to_midi_file, detect_chord, generate_midi, get_playback_status, play_midi, stop_midi};
+use commands::{clip_to_midi_file, detect_chord, generate_midi, get_chord_notes, get_playback_status, play_midi, stop_midi};
 use ws_commands::{clear_sync_source, get_clients, get_listen_port, get_sync_state, rename_client, send_clip_to_client, set_listen_port, set_play_mode, set_sync_source};
 
 fn main() {
@@ -50,6 +50,7 @@ fn main() {
             get_playback_status,
             clip_to_midi_file,
             detect_chord,
+            get_chord_notes,
             get_clients,
             send_clip_to_client,
             set_play_mode,

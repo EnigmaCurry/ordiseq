@@ -11,6 +11,11 @@ pub fn detect_chord(midi_notes: Vec<u8>) -> Vec<String> {
     ordiseq::chord::detect_chords(&midi_notes)
 }
 
+#[tauri::command]
+pub fn get_chord_notes(root_midi: u8, chord_type: String) -> Vec<u8> {
+    ordiseq::chord::get_chord_notes(root_midi, &chord_type)
+}
+
 static TEMP_FILES: Mutex<Vec<tempfile::NamedTempFile>> = Mutex::new(Vec::new());
 static STOP_FLAG: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
 static PLAYBACK_ACTIVE: AtomicBool = AtomicBool::new(false);
