@@ -318,15 +318,17 @@
                 <span class="seq-select-spacer"></span>
                 <span class="seq-select-label">Sequencer</span>
               </div>
+              {#if midiInfos[client.id]}
+                <div class="midi-drag-inline">
+                  <MidiWidget midiInfo={midiInfos[client.id]} compact />
+                  <span class="seq-select-spacer"></span>
+                  <span class="midi-drag-label">Drag to export 2x loop</span>
+                </div>
+              {/if}
             </div>
 
             {#if getSequencerType(client.id) === "euclidean"}
               <div class="euclid-panel">
-                {#if midiInfos[client.id]}
-                  <div class="midi-drag-section">
-                    <MidiWidget midiInfo={midiInfos[client.id]} compact />
-                  </div>
-                {/if}
                 <div class="euclid-header-row">
                   <span class="euclid-col note-col">Note</span>
                   <span class="euclid-col">Steps</span>
@@ -604,7 +606,7 @@
     align-items: center;
     justify-content: space-between;
     width: 100%;
-    padding: 0 0 0.3rem 0;
+    padding: 0 calc(28px + 0.4rem) 0.3rem 4px;
   }
 
   .pattern-row.single-step {
@@ -667,8 +669,19 @@
     cursor: default;
   }
 
-  .midi-drag-section {
-    margin-bottom: 0.5rem;
+  .midi-drag-inline {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .midi-drag-label {
+    font-size: 0.6rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
 
   .play-mode-row {

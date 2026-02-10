@@ -85,8 +85,6 @@
     <span class="compact-label">{midiInfo.title}</span>
     <span class="compact-sep">&middot;</span>
     <span class="compact-detail">{midiInfo.note_count} notes</span>
-    <span class="compact-sep">&middot;</span>
-    <span class="compact-hint">Drag to export 2x loop</span>
   </div>
   {#if error}
     <div class="error">{error}</div>
@@ -139,7 +137,9 @@
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    padding: 0.25rem 0.5rem;
+    padding: 0 0.5rem;
+    height: 40px;
+    box-sizing: border-box;
     background-color: rgba(0, 0, 0, 0.4);
     border: 1px solid rgba(var(--color-3), 0.4);
     border-radius: 4px;
