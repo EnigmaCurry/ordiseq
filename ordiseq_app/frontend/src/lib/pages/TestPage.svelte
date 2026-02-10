@@ -1,64 +1,103 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
-  import MidiWidget from "../MidiWidget.svelte";
-  import type { MidiInfo, GenerateMidiParams } from "../types";
+  const NOTE_COUNT = 24;
+  const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-  let selectedSequence = $state("c_major_scale");
-  let midiInfo: MidiInfo | null = $state(null);
-  let isLoading = $state(false);
-  let error: string | null = $state(null);
-
-  const sequences = [
-    { value: "c_major_scale", label: "C Major Scale" },
-    { value: "simple_melody", label: "Simple Melody" },
-  ];
-
-  async function handleGenerate() {
-    isLoading = true;
-    error = null;
-
-    try {
-      const params: GenerateMidiParams = {
-        sequence_type: selectedSequence,
-      };
-      midiInfo = await invoke<MidiInfo>("generate_midi", { params });
-    } catch (e) {
-      error = String(e);
-      midiInfo = null;
-    } finally {
-      isLoading = false;
-    }
+  interface Key {
+    midi: number;
+    name: string;
+    octave: number;
+    isBlack: boolean;
   }
+
+  let octaveStart = $state(48); // C3 default
+
+  let keys: Key[] = $derived(
+    Array.from({ length: NOTE_COUNT }, (_, i) => {
+      const midi = octaveStart + i;
+      const noteIndex = midi % 12;
+      return {
+        midi,
+        name: NOTE_NAMES[noteIndex],
+        octave: Math.floor(midi / 12) - 1,
+        isBlack: [1, 3, 6, 8, 10].includes(noteIndex),
+      };
+    })
+  );
+
+  let whiteKeys: Key[] = $derived(keys.filter((k) => !k.isBlack));
+  let blackKeys: Key[] = $derived(keys.filter((k) => k.isBlack));
+
+  let activeNotes: Set<number> = $state(new Set());
+
+  function toggleNote(midi: number) {
+    const next = new Set(activeNotes);
+    if (next.has(midi)) {
+      next.delete(midi);
+    } else {
+      next.add(midi);
+    }
+    activeNotes = next;
+  }
+
+  function octaveDown() {
+    if (octaveStart > 0) octaveStart -= 12;
+  }
+
+  function octaveUp() {
+    if (octaveStart + NOTE_COUNT < 128) octaveStart += 12;
+  }
+
+  let whiteW: number = $derived(100 / whiteKeys.length);
+
+  function blackKeyLeft(midi: number): number {
+    const noteInOctave = midi % 12;
+    const octaveOffset = Math.floor((midi - octaveStart) / 12);
+    const blackToWhiteIndex: Record<number, number> = {
+      1: 0, 3: 1, 6: 3, 8: 4, 10: 5,
+    };
+    const whiteIndexInOctave = blackToWhiteIndex[noteInOctave];
+    const whiteIndex = octaveOffset * 7 + whiteIndexInOctave;
+    return (whiteIndex + 1) * whiteW - whiteW * 0.3;
+  }
+
+  let octaveLabel: string = $derived(`C${Math.floor(octaveStart / 12) - 1}`);
 </script>
 
 <div class="page">
   <h1>Test</h1>
-  <p class="subtitle">MIDI Sequence Generator</p>
+  <p class="subtitle">Chord Selector</p>
 
-  <div class="form">
-    <div class="field">
-      <label for="sequence">Select Sequence</label>
-      <select id="sequence" bind:value={selectedSequence}>
-        {#each sequences as seq}
-          <option value={seq.value}>{seq.label}</option>
-        {/each}
-      </select>
+  <div class="panel">
+    <div class="toolbar">
+      <span class="octave-label">{octaveLabel}</span>
+      <div class="octave-buttons">
+        <button class="oct-btn" onclick={octaveDown} disabled={octaveStart <= 0}>-</button>
+        <button class="oct-btn" onclick={octaveUp} disabled={octaveStart + NOTE_COUNT >= 128}>+</button>
+      </div>
     </div>
 
-    <button onclick={handleGenerate} disabled={isLoading}>
-      {isLoading ? "Generating..." : "Generate MIDI"}
-    </button>
+    <div class="keyboard">
+      {#each whiteKeys as key}
+        <button
+          class="key white"
+          class:active={activeNotes.has(key.midi)}
+          onclick={() => toggleNote(key.midi)}
+        >
+          <span class="label">{key.name}{key.octave}</span>
+        </button>
+      {/each}
+
+      {#each blackKeys as key}
+        <button
+          class="key black"
+          class:active={activeNotes.has(key.midi)}
+          style="left: {blackKeyLeft(key.midi)}%; width: {whiteW * 0.6}%"
+          onclick={() => toggleNote(key.midi)}
+        >
+        </button>
+      {/each}
+    </div>
   </div>
-
-  {#if error}
-    <div class="error">{error}</div>
-  {/if}
-
-  {#if midiInfo}
-    <div class="result">
-      <MidiWidget {midiInfo} />
-    </div>
-  {/if}
 </div>
 
 <style>
@@ -74,33 +113,148 @@
 
   .subtitle {
     color: rgba(var(--color-3), 0.7);
-    margin-bottom: 2rem;
+    margin-bottom: 1.5rem;
   }
 
-  .form {
+  .panel {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(var(--color-3), 0.25);
+    border-radius: 8px;
+    padding: 12px;
+  }
+
+  .toolbar {
     display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    margin-bottom: 2rem;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-bottom: 10px;
   }
 
-  .field {
-    text-align: left;
+  .octave-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: rgba(var(--color-3), 0.7);
   }
 
-  select {
-    width: 100%;
+  .octave-buttons {
+    display: flex;
+    gap: 4px;
   }
 
-  .error {
-    padding: 0.75rem;
-    background-color: rgba(var(--color-1), 0.8);
+  .oct-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    background: rgba(var(--color-3), 0.15);
+    color: rgb(var(--color-3));
+    border: 1px solid rgba(var(--color-3), 0.3);
+  }
+
+  .oct-btn:hover:not(:disabled) {
+    background: rgba(var(--color-3), 0.3);
+  }
+
+  .oct-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    filter: none;
+  }
+
+  .keyboard {
+    position: relative;
+    display: flex;
+    height: 180px;
+    overflow: visible;
+  }
+
+  .key {
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.1s ease;
+    padding: 0;
+    margin: 0;
+    font-size: 0.65rem;
+    font-weight: 600;
+  }
+
+  .key.white {
+    flex: 1;
+    height: 100%;
+    background: #e8e8e8;
+    border-right: 1px solid #bbb;
+    border-radius: 0 0 4px 4px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    z-index: 1;
+  }
+
+  .key.white:first-child {
+    border-radius: 0 0 4px 4px;
+  }
+
+  .key.white:last-child {
+    border-right: none;
+  }
+
+  .key.white:hover {
+    background: #d0d0d0;
+  }
+
+  .key.white.active {
+    background: rgb(var(--color-1));
+    border: 2px solid rgb(var(--color-2));
+    border-top: none;
+  }
+
+  .key.white.active:hover {
+    background: rgb(var(--color-1));
+    border: 2px solid rgb(var(--color-2));
+    border-top: none;
+    filter: brightness(1.15);
+  }
+
+  .label {
+    color: #666;
+    padding-bottom: 8px;
+    pointer-events: none;
+  }
+
+  .key.white.active .label {
     color: #fff;
-    border-radius: 6px;
-    margin-bottom: 1rem;
   }
 
-  .result {
-    margin-top: 1.5rem;
+  .key.black {
+    position: absolute;
+    top: 0;
+    height: 58%;
+    background: #222;
+    border-radius: 0 0 3px 3px;
+    z-index: 2;
+  }
+
+  .key.black:hover {
+    background: #444;
+  }
+
+  .key.black.active {
+    background: rgb(var(--color-1));
+    border: 2px solid rgb(var(--color-2));
+    border-top: none;
+  }
+
+  .key.black.active:hover {
+    background: rgb(var(--color-1));
+    border: 2px solid rgb(var(--color-2));
+    border-top: none;
+    filter: brightness(1.15);
   }
 </style>
