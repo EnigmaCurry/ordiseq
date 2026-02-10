@@ -168,7 +168,7 @@
     border: none;
     border-radius: 3px;
     cursor: pointer;
-    color: #000;
+    color: rgb(var(--color-2));
     flex-shrink: 0;
   }
 
@@ -226,7 +226,7 @@
     border: none;
     border-radius: 0;
     cursor: pointer;
-    color: #000;
+    color: rgb(var(--color-2));
     transition: all 0.2s ease;
   }
 

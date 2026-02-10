@@ -462,13 +462,6 @@
 
   select {
     width: 100%;
-    background-color: color-mix(in srgb, rgb(var(--color-4)) 90%, black);
-    color: rgb(var(--color-1));
-  }
-
-  option {
-    background-color: color-mix(in srgb, rgb(var(--color-4)) 90%, black);
-    color: rgb(var(--color-1));
   }
 
   .shader-settings {

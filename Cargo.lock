@@ -4175,7 +4175,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tungstenite",
- "windows-sys 0.59.0",
  "xtask",
 ]
 
