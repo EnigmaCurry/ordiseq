@@ -16,6 +16,12 @@ const DEFAULT_TEMPO_BPM: f64 = 120.0;
 
 const NUM_PROGRAMS: usize = 16;
 
+// Fill constants
+const FILL_STEP_BEATS: f64 = 0.25; // 16th note grid
+const FILL_NOTE_LO: u8 = 36; // C2
+const FILL_NOTE_HI: u8 = 48; // C3
+const FILL_GATE_BEATS: f64 = 0.125; // 50% of 16th note
+
 /// Persisted plugin state (survives DAW save/load).
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PluginPersistState {
@@ -81,6 +87,10 @@ struct OrdiseqPlugParams {
     #[id = "program"]
     program: IntParam,
 
+    /// Fill amount: probability of generating fill notes at empty steps.
+    #[id = "fill"]
+    fill: FloatParam,
+
     /// Hidden param used only to poke the host into re-saving when persist state changes.
     #[id = "dummy"]
     dummy: FloatParam,
@@ -92,6 +102,10 @@ impl Default for OrdiseqPlugParams {
             editor_state: EguiState::from_size(400, 480),
             plugin_state: Arc::new(RwLock::new(PluginPersistState::default())),
             program: IntParam::new("Program", 1, IntRange::Linear { min: 1, max: 16 }),
+            fill: FloatParam::new("Fill", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_unit("%")
+                .with_value_to_string(formatters::v2s_f32_percentage(0))
+                .with_string_to_value(formatters::s2v_f32_percentage()),
             dummy: FloatParam::new("_dummy", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 })
                 .hide(),
         }
@@ -102,6 +116,24 @@ struct ActiveNote {
     channel: u8,
     note: u8,
     off_sample: u64,
+}
+
+/// Cached analysis of a clip for fill generation.
+struct FillCache {
+    /// Beat positions of every step in the clip's 16th-note grid.
+    step_beats: Vec<f64>,
+    /// MIDI notes in C2-C3 range not used by the clip, sorted descending (high→low).
+    available_notes: Vec<u8>,
+}
+
+/// Simple xorshift32 PRNG, returns value in [0.0, 1.0).
+fn xorshift32(state: &mut u32) -> f64 {
+    let mut x = *state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    *state = x;
+    (x as f64) / (u32::MAX as f64)
 }
 
 struct OrdiseqPlug {
@@ -138,6 +170,15 @@ struct OrdiseqPlug {
     // Time sync streaming
     sync_enabled: Arc<AtomicBool>,
     sync_sample_counter: u64,
+
+    // Fill state
+    fill_cache: Option<FillCache>,
+    fill_cached_version: u64,
+    fill_cached_program: usize,
+    fill_rng: u32,
+    fill_heat: f64,
+    fill_note_cursor: usize,
+    fill_loop_count: u64,
 }
 
 impl Default for OrdiseqPlug {
@@ -164,6 +205,13 @@ impl Default for OrdiseqPlug {
             was_connected: false,
             sync_enabled: Arc::new(AtomicBool::new(false)),
             sync_sample_counter: 0,
+            fill_cache: None,
+            fill_cached_version: u64::MAX,
+            fill_cached_program: usize::MAX,
+            fill_rng: 1,
+            fill_heat: 0.0,
+            fill_note_cursor: 0,
+            fill_loop_count: 0,
         }
     }
 }
@@ -264,6 +312,48 @@ impl OrdiseqPlug {
         }
     }
 
+    /// Analyze a clip to determine step grid and available fill notes.
+    fn compute_fill_cache(clip: &MidiClip) -> Option<FillCache> {
+        let total_steps = (clip.length_beats as f64 / FILL_STEP_BEATS).round() as usize;
+        if total_steps == 0 {
+            return None;
+        }
+
+        let mut used_notes = std::collections::HashSet::new();
+        for note in &clip.notes {
+            if note.note >= FILL_NOTE_LO && note.note <= FILL_NOTE_HI {
+                used_notes.insert(note.note);
+            }
+        }
+
+        // All step positions in the grid — fills can overlap clip notes
+        let step_beats: Vec<f64> = (0..total_steps)
+            .map(|s| s as f64 * FILL_STEP_BEATS)
+            .collect();
+
+        // Available fill notes sorted descending (high→low) for cascading drum fills
+        let mut available_notes: Vec<u8> = (FILL_NOTE_LO..=FILL_NOTE_HI)
+            .filter(|n| !used_notes.contains(n))
+            .collect();
+        available_notes.sort_unstable_by(|a, b| b.cmp(a));
+
+        if available_notes.is_empty() {
+            return None;
+        }
+
+        Some(FillCache {
+            step_beats,
+            available_notes,
+        })
+    }
+
+    fn reset_fill_state(&mut self) {
+        self.fill_heat = 0.0;
+        self.fill_note_cursor = 0;
+        self.fill_loop_count = 0;
+        self.fill_rng = 1;
+    }
+
     /// Report transport state to app if changed, or on fresh connection.
     fn report_transport(&mut self, bpm: f64, playing: bool) {
         let connected = self.connection_status.load(Ordering::Relaxed) == STATUS_CONNECTED;
@@ -319,6 +409,10 @@ impl Plugin for OrdiseqPlug {
         self.samples_elapsed = 0;
         self.was_playing = false;
         self.active_notes.clear();
+        self.fill_cache = None;
+        self.fill_cached_version = u64::MAX;
+        self.fill_cached_program = usize::MAX;
+        self.reset_fill_state();
 
         // Migrate and sync programs from persisted state
         if let Ok(mut state) = self.params.plugin_state.write() {
@@ -468,6 +562,17 @@ impl Plugin for OrdiseqPlug {
         self.poll_ws_inbox();
         self.sync_cached_programs();
 
+        // Update fill cache when clip or program changes
+        let pgm_for_fill = (self.params.program.value() - 1).max(0) as usize;
+        if self.clip_version != self.fill_cached_version || pgm_for_fill != self.fill_cached_program {
+            self.fill_cached_version = self.clip_version;
+            self.fill_cached_program = pgm_for_fill;
+            self.fill_cache = self.cached_programs
+                .get(pgm_for_fill)
+                .and_then(|c| c.as_ref())
+                .and_then(Self::compute_fill_cache);
+        }
+
         let bpm = transport.tempo.unwrap_or(DEFAULT_TEMPO_BPM);
         let playing = transport.playing;
 
@@ -530,6 +635,7 @@ impl Plugin for OrdiseqPlug {
                 self.stop_all_notes(context);
                 self.samples_elapsed = 0;
                 self.was_playing = false;
+                self.reset_fill_state();
             }
             return ProcessStatus::Normal;
         }
@@ -594,6 +700,75 @@ impl Plugin for OrdiseqPlug {
                 }
             }
 
+            // Generate fill notes at step positions (max 2 simultaneous notes)
+            if let Some(fill_cache) = &self.fill_cache {
+                let fill_amount = self.params.fill.value() as f64;
+                if fill_amount > 0.0 {
+                    for &step_beat in &fill_cache.step_beats {
+                        if step_beat >= chunk_start_beats && step_beat < chunk_end_beats {
+                            // Don't stack 3 notes at once
+                            if self.active_notes.len() >= 2 {
+                                self.fill_heat *= 0.5;
+                                continue;
+                            }
+
+                            // Quadratic base + strong momentum for rapid bursts
+                            let base_chance = fill_amount * fill_amount * 0.5;
+                            let momentum = self.fill_heat * fill_amount * 0.8;
+                            let prob = (base_chance + momentum).min(1.0);
+
+                            let roll = xorshift32(&mut self.fill_rng);
+                            if roll < prob {
+                                // Occasionally skip ahead in the note list for variety
+                                let jitter = xorshift32(&mut self.fill_rng);
+                                if jitter < 0.15 {
+                                    self.fill_note_cursor += 1
+                                        + (xorshift32(&mut self.fill_rng)
+                                            * (fill_cache.available_notes.len() - 1) as f64)
+                                            as usize;
+                                }
+
+                                let note_idx =
+                                    self.fill_note_cursor % fill_cache.available_notes.len();
+                                let fill_note = fill_cache.available_notes[note_idx];
+                                self.fill_note_cursor += 1;
+
+                                // Velocity builds with momentum
+                                let vel = ((0.55 + 0.35 * self.fill_heat) as f32).min(1.0);
+
+                                let sample_offset = ((step_beat - chunk_start_beats)
+                                    * samples_per_beat)
+                                    as u32;
+                                let timing = (processed as u32) + sample_offset;
+
+                                context.send_event(NoteEvent::NoteOn {
+                                    timing,
+                                    voice_id: None,
+                                    channel: 0,
+                                    note: fill_note,
+                                    velocity: vel,
+                                });
+
+                                let duration_samples =
+                                    (FILL_GATE_BEATS * samples_per_beat) as u64;
+                                self.active_notes.push(ActiveNote {
+                                    channel: 0,
+                                    note: fill_note,
+                                    off_sample: self.samples_elapsed
+                                        + sample_offset as u64
+                                        + duration_samples,
+                                });
+
+                                // Strong heat boost — cascading fills
+                                self.fill_heat = (self.fill_heat + 0.7).min(1.0);
+                            } else {
+                                self.fill_heat *= 0.5;
+                            }
+                        }
+                    }
+                }
+            }
+
             // Check for note-offs in this chunk
             let abs_chunk_end = self.samples_elapsed + chunk;
             let mut i = 0;
@@ -623,17 +798,23 @@ impl Plugin for OrdiseqPlug {
             processed += chunk;
             self.samples_elapsed += chunk;
 
-            // Loop wrap: kill any remaining active notes
-            if self.samples_elapsed % clip_length_samples == 0 && !self.active_notes.is_empty() {
-                let timing = processed.min(buffer_len - 1) as u32;
-                for note in self.active_notes.drain(..) {
-                    context.send_event(NoteEvent::NoteOff {
-                        timing,
-                        voice_id: None,
-                        channel: note.channel,
-                        note: note.note,
-                        velocity: 0.0,
-                    });
+            // Loop wrap: soft-decay fill heat and kill remaining active notes
+            if self.samples_elapsed % clip_length_samples == 0 {
+                // Soft decay — carry some momentum across loops for organic variation
+                self.fill_heat *= 0.3;
+                // RNG keeps running (never reseeded), cursor keeps drifting
+
+                if !self.active_notes.is_empty() {
+                    let timing = processed.min(buffer_len - 1) as u32;
+                    for note in self.active_notes.drain(..) {
+                        context.send_event(NoteEvent::NoteOff {
+                            timing,
+                            voice_id: None,
+                            channel: note.channel,
+                            note: note.note,
+                            velocity: 0.0,
+                        });
+                    }
                 }
             }
         }
