@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { invoke } from "@tauri-apps/api/core";
+
   const NOTE_COUNT = 24;
   const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
@@ -61,6 +63,20 @@
   }
 
   let octaveLabel: string = $derived(`C${Math.floor(octaveStart / 12) - 1}`);
+
+  const MAX_CHORDS = 6;
+  let chordNames: string[] = $state([]);
+
+  $effect(() => {
+    const notes = [...activeNotes];
+    if (notes.length < 3) {
+      chordNames = [];
+      return;
+    }
+    invoke<string[]>("detect_chord", { midiNotes: notes }).then((names) => {
+      chordNames = names;
+    });
+  });
 </script>
 
 <div class="page">
@@ -69,10 +85,20 @@
 
   <div class="panel">
     <div class="toolbar">
-      <span class="octave-label">{octaveLabel}</span>
-      <div class="octave-buttons">
-        <button class="oct-btn" onclick={octaveDown} disabled={octaveStart <= 0}>-</button>
-        <button class="oct-btn" onclick={octaveUp} disabled={octaveStart + NOTE_COUNT >= 128}>+</button>
+      <div class="chord-names">
+        {#if chordNames.length > 0}
+          <span class="chord-primary">{chordNames[0]}</span>
+          {#if chordNames.length > 1}
+            <span class="chord-alts">{chordNames.slice(1, MAX_CHORDS).join(", ")}{chordNames.length > MAX_CHORDS ? ", ..." : ""}</span>
+          {/if}
+        {/if}
+      </div>
+      <div class="octave-controls">
+        <span class="octave-label">{octaveLabel}</span>
+        <div class="octave-buttons">
+          <button class="oct-btn" onclick={octaveDown} disabled={octaveStart <= 0}>-</button>
+          <button class="oct-btn" onclick={octaveUp} disabled={octaveStart + NOTE_COUNT >= 128}>+</button>
+        </div>
       </div>
     </div>
 
@@ -126,9 +152,37 @@
   .toolbar {
     display: flex;
     align-items: center;
-    justify-content: flex-end;
-    gap: 8px;
+    justify-content: space-between;
     margin-bottom: 10px;
+  }
+
+  .chord-names {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-height: 1.5em;
+    overflow: hidden;
+  }
+
+  .chord-primary {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: rgb(var(--color-1));
+    flex-shrink: 0;
+  }
+
+  .chord-alts {
+    font-size: 0.75rem;
+    color: rgba(var(--color-3), 0.6);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .octave-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .octave-label {

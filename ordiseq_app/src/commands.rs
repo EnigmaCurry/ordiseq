@@ -6,6 +6,11 @@ use std::sync::{Arc, Mutex};
 
 use crate::protocol::MidiClip;
 
+#[tauri::command]
+pub fn detect_chord(midi_notes: Vec<u8>) -> Vec<String> {
+    ordiseq::chord::detect_chords(&midi_notes)
+}
+
 static TEMP_FILES: Mutex<Vec<tempfile::NamedTempFile>> = Mutex::new(Vec::new());
 static STOP_FLAG: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
 static PLAYBACK_ACTIVE: AtomicBool = AtomicBool::new(false);

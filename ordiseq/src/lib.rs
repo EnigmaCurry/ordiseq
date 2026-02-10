@@ -26,6 +26,7 @@
 //! ## Getting started
 //!
 //! ## Examples
+pub mod chord;
 pub mod error;
 pub mod klib_trait;
 pub mod midi;
