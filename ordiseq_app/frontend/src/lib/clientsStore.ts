@@ -32,8 +32,9 @@ export interface EuclidRow {
   length: number;
   hits: number;
   rotation: number;
-  accents: number;   // 0..hits, euclidean accent count
-  velocity: number;  // base velocity 0-127
+  accents: number;          // 0..hits, euclidean accent count
+  velocity: number;         // hit velocity 0-127
+  accentVelocity: number;   // accent velocity 0-127
   manualPattern?: StepState[];  // present = manual edit mode
 }
 
@@ -150,6 +151,7 @@ export function euclideanToClip(rows: EuclidRow[]): MidiClip {
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const baseVel = (row.velocity ?? 100) / 127;
+    const accVel = (row.accentVelocity ?? 127) / 127;
 
     // Determine per-step pattern: manual or euclidean
     let stepPattern: StepState[];
@@ -183,7 +185,7 @@ export function euclideanToClip(rows: EuclidRow[]): MidiClip {
       const si = step % row.length;
       const state = stepPattern[si];
       if (state !== "off") {
-        const vel = state === "accent" && baseVel > 0 ? 1.0 : baseVel;
+        const vel = state === "accent" ? accVel : baseVel;
         if (vel > 0) {
           notes.push({
             note: row.note,
@@ -205,7 +207,7 @@ export function euclideanToClip(rows: EuclidRow[]): MidiClip {
 }
 
 export function defaultEuclidRow(note: number = 36): EuclidRow {
-  return { note, length: 16, hits: 4, rotation: 0, accents: 0, velocity: 100 };
+  return { note, length: 16, hits: 4, rotation: 0, accents: 0, velocity: 100, accentVelocity: 127 };
 }
 
 // --- Persistence by client name ---
@@ -255,6 +257,7 @@ export function loadConfigForClient(name: string, program: number = 1): StoredCo
     rotation: r.rotation,
     accents: r.accents ?? 0,
     velocity: r.velocity ?? 100,
+    accentVelocity: r.accentVelocity ?? 127,
     ...(r.manualPattern ? { manualPattern: r.manualPattern } : {}),
   }));
   return config;

@@ -179,6 +179,8 @@
       row.accents = Math.max(0, Math.min(row.hits, value));
     } else if (field === "velocity") {
       row.velocity = Math.max(0, Math.min(127, value));
+    } else if (field === "accentVelocity") {
+      row.accentVelocity = Math.max(0, Math.min(127, value));
     }
 
     const newRows = [...rows];
@@ -388,7 +390,8 @@
                   <span class="euclid-col">Steps</span>
                   <span class="euclid-col">Hits</span>
                   <span class="euclid-col">Accents</span>
-                  <span class="euclid-col">Velocity</span>
+                  <span class="euclid-col">Vel Hit</span>
+                  <span class="euclid-col">Vel Acc</span>
                   <span class="euclid-col">Rotate</span>
                   <span class="euclid-col btn-col"></span>
                 </div>
@@ -422,6 +425,10 @@
                     <span class="euclid-col dial-col">
                       <Dial value={row.velocity} min={0} max={127}
                         onchange={(v) => updateRow(client.id, i, "velocity", v)} />
+                    </span>
+                    <span class="euclid-col dial-col">
+                      <Dial value={row.accentVelocity} min={0} max={127}
+                        onchange={(v) => updateRow(client.id, i, "accentVelocity", v)} />
                     </span>
                     <span class="euclid-col dial-col">
                       <Dial value={row.rotation} min={0} max={Math.max(0, row.length - 1)}
@@ -635,18 +642,18 @@
   }
 
   .euclid-col {
-    width: 60px;
+    flex: 1;
     text-align: center;
-    flex-shrink: 0;
+    min-width: 40px;
   }
 
   .note-col {
-    width: 48px;
+    flex: 0 0 48px;
     text-align: center;
   }
 
   .btn-col {
-    width: 28px;
+    flex: 0 0 28px;
   }
 
   .dial-col {
@@ -658,8 +665,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    width: 100%;
-    padding: 0 calc(28px + 0.4rem) 0.3rem 4px;
+    width: calc(100% - 28px - 0.4rem);
+    padding-bottom: 0.3rem;
   }
 
   .pattern-row.single-step {
