@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::net::TcpListener;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use tungstenite::Message;
@@ -55,9 +55,12 @@ struct ClientState {
 
 pub struct WsServer {
     clients: Arc<RwLock<HashMap<ClientId, ClientState>>>,
-    _next_id: Arc<AtomicU64>,
+    next_id: Arc<AtomicU64>,
     sync_source: Arc<RwLock<Option<ClientId>>>,
     sync_state: Arc<RwLock<SyncState>>,
+    port: RwLock<u16>,
+    stop_flag: Arc<AtomicBool>,
+    accept_handle: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 impl WsServer {
@@ -67,19 +70,28 @@ impl WsServer {
         let next_id = Arc::new(AtomicU64::new(1));
         let sync_source = Arc::new(RwLock::new(None));
         let sync_state = Arc::new(RwLock::new(SyncState::default()));
+        let stop_flag = Arc::new(AtomicBool::new(false));
 
-        let server = Self {
-            clients: clients.clone(),
-            _next_id: next_id.clone(),
-            sync_source: sync_source.clone(),
-            sync_state: sync_state.clone(),
+        let handle = {
+            let clients = clients.clone();
+            let next_id = next_id.clone();
+            let sync_source = sync_source.clone();
+            let sync_state = sync_state.clone();
+            let stop_flag = stop_flag.clone();
+            std::thread::spawn(move || {
+                Self::accept_loop(port, clients, next_id, sync_source, sync_state, stop_flag);
+            })
         };
 
-        std::thread::spawn(move || {
-            Self::accept_loop(port, clients, next_id, sync_source, sync_state);
-        });
-
-        server
+        Self {
+            clients,
+            next_id,
+            sync_source,
+            sync_state,
+            port: RwLock::new(port),
+            stop_flag,
+            accept_handle: Mutex::new(Some(handle)),
+        }
     }
 
     fn accept_loop(
@@ -88,6 +100,7 @@ impl WsServer {
         next_id: Arc<AtomicU64>,
         sync_source: Arc<RwLock<Option<ClientId>>>,
         sync_state: Arc<RwLock<SyncState>>,
+        stop_flag: Arc<AtomicBool>,
     ) {
         let addr = format!("127.0.0.1:{port}");
         let listener = match TcpListener::bind(&addr) {
@@ -97,22 +110,35 @@ impl WsServer {
                 return;
             }
         };
+        listener.set_nonblocking(true).ok();
         eprintln!("WsServer: listening on {addr}");
 
-        for stream in listener.incoming() {
-            let stream = match stream {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
+        loop {
+            if stop_flag.load(Ordering::Relaxed) {
+                eprintln!("WsServer: accept loop stopping on port {port}");
+                break;
+            }
 
-            let clients = clients.clone();
-            let sync_source = sync_source.clone();
-            let sync_state = sync_state.clone();
-            let client_id = next_id.fetch_add(1, Ordering::Relaxed);
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    stream.set_nonblocking(false).ok();
+                    let clients = clients.clone();
+                    let sync_source = sync_source.clone();
+                    let sync_state = sync_state.clone();
+                    let stop_flag = stop_flag.clone();
+                    let client_id = next_id.fetch_add(1, Ordering::Relaxed);
 
-            std::thread::spawn(move || {
-                Self::handle_client(stream, client_id, clients, sync_source, sync_state);
-            });
+                    std::thread::spawn(move || {
+                        Self::handle_client(stream, client_id, clients, sync_source, sync_state, stop_flag);
+                    });
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                Err(_) => {
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+            }
         }
     }
 
@@ -122,6 +148,7 @@ impl WsServer {
         clients: Arc<RwLock<HashMap<ClientId, ClientState>>>,
         sync_source: Arc<RwLock<Option<ClientId>>>,
         sync_state: Arc<RwLock<SyncState>>,
+        stop_flag: Arc<AtomicBool>,
     ) {
         let mut ws = match tungstenite::accept(stream) {
             Ok(ws) => ws,
@@ -158,6 +185,13 @@ impl WsServer {
 
         // Main loop
         loop {
+            if stop_flag.load(Ordering::Relaxed) {
+                eprintln!("WsServer: client {client_id} handler stopping (server restart)");
+                let _ = ws.close(None);
+                Self::remove_client(&clients, client_id, &sync_source, &sync_state);
+                return;
+            }
+
             // Drain outbound messages
             while let Ok(msg) = out_rx.try_recv() {
                 if ws.send(Message::Text(msg)).is_err() {
@@ -203,6 +237,22 @@ impl WsServer {
                                     client.info.bpm = bpm;
                                     client.info.playing = playing;
                                     client.info.program = program;
+                                }
+                                // If the sync source reports transport stopped, update sync state
+                                // so the frontend stops animating even if the final TimeSync is lost.
+                                if !playing {
+                                    let is_source = sync_source.read().unwrap()
+                                        .map_or(false, |id| id == client_id);
+                                    if is_source {
+                                        let mut state = sync_state.write().unwrap();
+                                        if state.playing {
+                                            state.playing = false;
+                                            state.received_at_ms = std::time::SystemTime::now()
+                                                .duration_since(std::time::UNIX_EPOCH)
+                                                .unwrap_or_default()
+                                                .as_millis() as u64;
+                                        }
+                                    }
                                 }
                             }
                             PluginMessage::ClipAck { clip_id } => {
@@ -315,6 +365,48 @@ impl WsServer {
     }
 
     // -- Public API for Tauri commands --
+
+    pub fn get_port(&self) -> u16 {
+        *self.port.read().unwrap()
+    }
+
+    /// Restart the server on a new port. Disconnects all existing clients.
+    pub fn restart(&self, new_port: u16) {
+        // Signal all threads to stop
+        self.stop_flag.store(true, Ordering::Relaxed);
+
+        // Wait for accept loop to finish
+        if let Some(handle) = self.accept_handle.lock().unwrap().take() {
+            let _ = handle.join();
+        }
+
+        // At this point, stop_flag is true so client handlers will also exit.
+        // Give them a moment to close their WebSockets.
+        std::thread::sleep(Duration::from_millis(200));
+
+        // Clear all state
+        self.clients.write().unwrap().clear();
+        *self.sync_source.write().unwrap() = None;
+        *self.sync_state.write().unwrap() = SyncState::default();
+        *self.port.write().unwrap() = new_port;
+
+        // Reset stop flag and start new accept loop
+        self.stop_flag.store(false, Ordering::Relaxed);
+
+        let handle = {
+            let clients = self.clients.clone();
+            let next_id = self.next_id.clone();
+            let sync_source = self.sync_source.clone();
+            let sync_state = self.sync_state.clone();
+            let stop_flag = self.stop_flag.clone();
+            std::thread::spawn(move || {
+                Self::accept_loop(new_port, clients, next_id, sync_source, sync_state, stop_flag);
+            })
+        };
+
+        *self.accept_handle.lock().unwrap() = Some(handle);
+        eprintln!("WsServer: restarted on port {new_port}");
+    }
 
     pub fn get_clients(&self) -> Vec<ClientInfo> {
         let map = self.clients.read().unwrap();

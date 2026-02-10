@@ -12,7 +12,7 @@ use tauri::Manager;
 use tauri_plugin_store::StoreExt;
 
 use commands::{clip_to_midi_file, generate_midi, get_playback_status, play_midi, stop_midi};
-use ws_commands::{clear_sync_source, get_clients, get_sync_state, rename_client, send_clip_to_client, set_play_mode, set_sync_source};
+use ws_commands::{clear_sync_source, get_clients, get_listen_port, get_sync_state, rename_client, send_clip_to_client, set_listen_port, set_play_mode, set_sync_source};
 
 fn main() {
     tauri::Builder::default()
@@ -30,7 +30,16 @@ fn main() {
                 }
             }
 
-            let server = ws_server::WsServer::start(9850);
+            let port = if let Ok(store) = app.store("settings.json") {
+                store.get("listenPort")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u16)
+                    .filter(|&p| p > 0)
+                    .unwrap_or(9850)
+            } else {
+                9850
+            };
+            let server = ws_server::WsServer::start(port);
             app.manage(server);
             Ok(())
         })
@@ -47,6 +56,8 @@ fn main() {
             set_sync_source,
             clear_sync_source,
             get_sync_state,
+            get_listen_port,
+            set_listen_port,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -318,6 +318,18 @@
                 <span class="seq-select-spacer"></span>
                 <span class="seq-select-label">Sequencer</span>
               </div>
+              <div class="seq-select-wrapper">
+                <select
+                  class="seq-select"
+                  value={getPlayMode(client.id)}
+                  onchange={(e) => setPlayMode(client.id, (e.target as HTMLSelectElement).value as "transport" | "note_trigger")}
+                >
+                  <option value="transport">Transport</option>
+                  <option value="note_trigger">Note Trigger</option>
+                </select>
+                <span class="seq-select-spacer"></span>
+                <span class="seq-select-label">Play Mode</span>
+              </div>
               {#if midiInfos[client.id]}
                 <div class="midi-drag-inline">
                   <MidiWidget midiInfo={midiInfos[client.id]} compact />
@@ -387,20 +399,6 @@
               </div>
             {/if}
 
-            <div class="play-mode-row">
-              <div class="seq-select-wrapper">
-                <select
-                  class="seq-select"
-                  value={getPlayMode(client.id)}
-                  onchange={(e) => setPlayMode(client.id, (e.target as HTMLSelectElement).value as "transport" | "note_trigger")}
-                >
-                  <option value="transport">Transport</option>
-                  <option value="note_trigger">Note Trigger</option>
-                </select>
-                <span class="seq-select-spacer"></span>
-                <span class="seq-select-label">Play Mode</span>
-              </div>
-            </div>
           </div>
         </div>
       {/each}
@@ -684,7 +682,4 @@
     letter-spacing: 0.04em;
   }
 
-  .play-mode-row {
-    margin-top: 0.75rem;
-  }
 </style>

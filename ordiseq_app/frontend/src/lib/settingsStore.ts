@@ -22,6 +22,7 @@ const STORE_FILE = "settings.json";
 const SHADER_KEY = "shader";
 const ALWAYS_ON_TOP_KEY = "alwaysOnTop";
 const ICON_SHAPE_KEY = "iconShape";
+const LISTEN_PORT_KEY = "listenPort";
 
 const defaultSettings: ShaderSettings = {
   selectedShader: "plasma",
@@ -115,5 +116,26 @@ export async function saveIconShape(value: IconShape): Promise<void> {
     await s.save();
   } catch (e) {
     console.warn("Failed to save icon shape setting:", e);
+  }
+}
+
+export async function loadListenPort(): Promise<number> {
+  try {
+    const s = await getStore();
+    const saved = await s.get<number>(LISTEN_PORT_KEY);
+    return saved ?? 9850;
+  } catch (e) {
+    console.warn("Failed to load listen port setting:", e);
+    return 9850;
+  }
+}
+
+export async function saveListenPort(value: number): Promise<void> {
+  try {
+    const s = await getStore();
+    await s.set(LISTEN_PORT_KEY, value);
+    await s.save();
+  } catch (e) {
+    console.warn("Failed to save listen port setting:", e);
   }
 }

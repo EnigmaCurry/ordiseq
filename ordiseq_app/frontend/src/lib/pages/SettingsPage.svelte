@@ -1,11 +1,14 @@
 <script lang="ts">
   import { setShader, setUniforms, exampleShaders, shaderConfig, animationConfig, setAnimationEnabled, setAnimationBase, persistSettings, selectedShaderName } from "../shaderStore";
-  import { loadAlwaysOnTop, saveAlwaysOnTop, loadIconShape, saveIconShape } from "../settingsStore";
+  import { loadAlwaysOnTop, saveAlwaysOnTop, loadIconShape, saveIconShape, loadListenPort, saveListenPort } from "../settingsStore";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { invoke } from "@tauri-apps/api/core";
   import { iconShapes, applyIcon, type IconShape } from "../iconGenerator";
 
   let alwaysOnTop = $state(false);
   let iconShape = $state<IconShape>("ufo");
+  let listenPort = $state(9850);
+  let portStatus = $state("");
 
   // Load persisted settings
   loadAlwaysOnTop().then((value) => {
@@ -13,6 +16,10 @@
   });
   loadIconShape().then((value) => {
     iconShape = value;
+  });
+  loadListenPort().then((value) => {
+    listenPort = value;
+    portStatus = "Listening on 127.0.0.1:" + value;
   });
 
   async function updateAlwaysOnTop(event: Event) {
@@ -27,6 +34,21 @@
     iconShape = select.value as IconShape;
     await applyIcon(iconShape, color1);
     await saveIconShape(iconShape);
+  }
+
+  async function updateListenPort(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const val = parseInt(input.value, 10);
+    if (isNaN(val) || val < 1 || val > 65535) return;
+    listenPort = val;
+    portStatus = "";
+    try {
+      await invoke("set_listen_port", { port: val });
+      await saveListenPort(val);
+      portStatus = "Listening on 127.0.0.1:" + val;
+    } catch (e) {
+      portStatus = "Error: " + String(e);
+    }
   }
 
   const shaderOptions = [
@@ -371,6 +393,28 @@
       </select>
     </div>
   </div>
+
+  <div class="settings-section">
+    <h2>Network</h2>
+
+    <div class="field">
+      <label for="listenPort">
+        WebSocket Port
+        <span class="value">{listenPort}</span>
+      </label>
+      <input
+        type="range"
+        id="listenPort"
+        min="9850"
+        max="9950"
+        step="1"
+        value={listenPort}
+        oninput={(e) => { listenPort = parseInt((e.target as HTMLInputElement).value, 10); }}
+        onchange={updateListenPort}
+      />
+      <div class="port-status">{portStatus}</div>
+    </div>
+  </div>
 </div>
 
 <style>
@@ -418,6 +462,13 @@
 
   select {
     width: 100%;
+    background-color: color-mix(in srgb, rgb(var(--color-4)) 90%, black);
+    color: rgb(var(--color-1));
+  }
+
+  option {
+    background-color: color-mix(in srgb, rgb(var(--color-4)) 90%, black);
+    color: rgb(var(--color-1));
   }
 
   .shader-settings {
@@ -521,5 +572,11 @@
   input[type="color"]::-moz-color-swatch {
     border: none;
     border-radius: 4px;
+  }
+
+  .port-status {
+    font-size: 0.8rem;
+    color: rgb(var(--color-2));
+    margin-top: 0.4rem;
   }
 </style>

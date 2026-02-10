@@ -32,6 +32,10 @@ let anchor = {
 
 let pollInterval: ReturnType<typeof setInterval> | null = null;
 let animFrame: number | null = null;
+// Track when we last received fresh sync data (local clock)
+let lastNewSyncLocalMs = 0;
+// Consider sync stale after 500ms without updates (~20Hz expected)
+const STALE_THRESHOLD_MS = 500;
 
 async function fetchSyncState() {
   try {
@@ -41,6 +45,7 @@ async function fetchSyncState() {
 
     // Update anchor when we get new data (different from last)
     if (result.received_at_ms > prev.received_at_ms) {
+      lastNewSyncLocalMs = performance.now();
       anchor = {
         beat: result.beat_position,
         localTimeMs: performance.now(),
@@ -48,8 +53,8 @@ async function fetchSyncState() {
       };
       transportBpm.set(result.bpm);
       transportPlaying.set(result.playing);
-    } else if (!result.playing && prev.playing) {
-      // Transport just stopped
+    } else if (!result.playing && get(transportPlaying)) {
+      // Backend says stopped
       transportPlaying.set(false);
     }
   } catch {
@@ -61,9 +66,14 @@ function interpolationLoop() {
   const state = get(syncState);
   if (state.playing && state.received_at_ms > 0) {
     const now = performance.now();
-    const elapsedMs = now - anchor.localTimeMs;
-    const elapsedBeats = (elapsedMs / 60000) * anchor.bpm;
-    beatPosition.set(anchor.beat + elapsedBeats);
+    // Stop interpolating if sync data is stale (transport likely stopped)
+    if (lastNewSyncLocalMs > 0 && now - lastNewSyncLocalMs > STALE_THRESHOLD_MS) {
+      transportPlaying.set(false);
+    } else {
+      const elapsedMs = now - anchor.localTimeMs;
+      const elapsedBeats = (elapsedMs / 60000) * anchor.bpm;
+      beatPosition.set(anchor.beat + elapsedBeats);
+    }
   }
   animFrame = requestAnimationFrame(interpolationLoop);
 }

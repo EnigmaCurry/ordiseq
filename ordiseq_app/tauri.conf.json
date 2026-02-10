@@ -16,8 +16,11 @@
         "title": "Ordiseq Mothership",
         "width": 600,
         "height": 500,
+        "minWidth": 600,
+        "minHeight": 500,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "visible": false
       }
     ],
     "security": {

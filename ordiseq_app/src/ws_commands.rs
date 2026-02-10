@@ -54,3 +54,21 @@ pub fn clear_sync_source(server: State<WsServer>) {
 pub fn get_sync_state(server: State<WsServer>) -> SyncStateInfo {
     server.get_sync_state()
 }
+
+#[tauri::command]
+pub fn get_listen_port(server: State<WsServer>) -> u16 {
+    server.get_port()
+}
+
+#[tauri::command]
+pub fn set_listen_port(server: State<WsServer>, port: u16) -> Result<(), String> {
+    if port == 0 {
+        return Err("Port must be > 0".into());
+    }
+    let current = server.get_port();
+    if port == current {
+        return Ok(());
+    }
+    server.restart(port);
+    Ok(())
+}

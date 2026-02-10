@@ -11,6 +11,8 @@
     "store:allow-save",
     "store:allow-load",
     "core:window:allow-set-always-on-top",
-    "core:window:allow-set-icon"
+    "core:window:allow-set-icon",
+    "core:window:allow-show",
+    "core:window:allow-set-focus"
   ]
 }

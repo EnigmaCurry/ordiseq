@@ -347,12 +347,13 @@ impl Plugin for OrdiseqPlug {
         let params = self.params.clone();
         let connection_status = self.connection_status.clone();
         let needs_host_notify = self.needs_host_notify.clone();
-
         create_egui_editor(
             self.params.editor_state.clone(),
             (),
             |_, _| {},
             move |egui_ctx, setter, _state| {
+                egui_ctx.set_visuals(egui::Visuals::dark());
+
                 // Notify host that persist state changed so the DAW re-saves
                 if needs_host_notify.swap(false, Ordering::Relaxed) {
                     let v = params.dummy.value();
@@ -362,34 +363,24 @@ impl Plugin for OrdiseqPlug {
                 }
 
                 egui::CentralPanel::default().show(egui_ctx, |ui| {
-                    ui.heading("Ordiseq");
-                    ui.add_space(8.0);
-
-                    // Name field
                     {
-                        let mut state = params.plugin_state.write().unwrap();
-                        ui.horizontal(|ui| {
-                            ui.label("Name:");
-                            ui.text_edit_singleline(&mut state.name);
-                        });
+                        let state = params.plugin_state.read().unwrap();
+                        ui.heading(&state.name);
                     }
+                    ui.add_space(8.0);
 
                     // Port field
                     {
                         let mut state = params.plugin_state.write().unwrap();
                         ui.horizontal(|ui| {
                             ui.label("Port:");
-                            let mut port_str = state.port.to_string();
-                            let response = ui.add(
-                                egui::TextEdit::singleline(&mut port_str)
-                                    .desired_width(60.0),
-                            );
-                            if response.changed() {
-                                if let Ok(p) = port_str.parse::<u16>() {
-                                    if p > 0 {
-                                        state.port = p;
-                                    }
-                                }
+                            let mut port_val = state.port as i32;
+                            if ui.add(
+                                egui::DragValue::new(&mut port_val)
+                                    .range(9850..=9950)
+                                    .speed(0.1),
+                            ).changed() {
+                                state.port = port_val as u16;
                             }
                         });
                     }
