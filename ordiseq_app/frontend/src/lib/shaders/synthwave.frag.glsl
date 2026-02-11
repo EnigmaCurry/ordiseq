@@ -267,6 +267,88 @@ void main() {
     col += c1 * horizGlow;
   }
 
+  // --- UFO encounter ---
+  {
+    float ufoEpoch = 55.0;
+    float ufoSlot = floor(rawTime / ufoEpoch);
+    float ufoRng = fract(sin(ufoSlot * 127.31 + 91.7) * 43758.5453);
+
+    if (ufoRng > 0.5) {
+      float lt = fract(rawTime / ufoEpoch);
+      float ufoVis = smoothstep(0.05, 0.14, lt) * smoothstep(0.95, 0.86, lt);
+
+      if (ufoVis > 0.001) {
+        // Flight direction alternates per encounter
+        float dir = step(0.5, fract(ufoRng * 7.31)) * 2.0 - 1.0;
+
+        // Double smoothstep flight path: cruise in, hover in middle, cruise out
+        float ft = lt * lt * (3.0 - 2.0 * lt);
+        ft = ft * ft * (3.0 - 2.0 * ft);
+
+        float ufoX = 0.5 + dir * (0.7 - 1.4 * ft);
+        float ufoY = horizon + 0.20 + sin(ft * 3.14159) * 0.05
+                     + sin(rawTime * 1.7) * 0.003;
+
+        vec2 dUfo = vec2((uv.x - ufoX) * aspect, uv.y - ufoY);
+
+        // Beam strength: ramps on when UFO is near road center
+        float beamStr = smoothstep(0.15, 0.05, abs(ufoX - 0.5));
+
+        // --- Tractor beam (drawn behind UFO) ---
+        if (beamStr > 0.01 && uv.y < ufoY - 0.005) {
+          float beamTopY = ufoY - 0.005;
+          float beamBotY = horizon - 0.25;
+          float bt = clamp((beamTopY - uv.y) / (beamTopY - beamBotY), 0.0, 1.0);
+          float hw = mix(0.012, 0.11, bt * bt) / aspect;
+          float be = smoothstep(1.0, 0.4, abs(uv.x - ufoX) / hw);
+          be *= beamStr * ufoVis * (1.0 - bt * 0.35);
+          // Animated scan lines inside beam
+          be *= 0.55 + 0.45 * sin(uv.y * 80.0 - rawTime * 4.0);
+          // Rising particle sparkle
+          float spark = sin(uv.y * 140.0 + rawTime * 2.5)
+                      * sin(uv.x * 100.0 * aspect - rawTime * 0.8);
+          be += max(spark, 0.0) * 0.15 * be;
+          col += mix(c1, c2, 0.3) * be * 0.3;
+        }
+
+        // --- UFO body ---
+        // Saucer (flat ellipse)
+        float sW = 0.05, sH = 0.008;
+        float sDist = length(dUfo / vec2(sW, sH));
+        float saucer = smoothstep(1.1, 0.85, sDist);
+
+        // Dome (rounder, sits on top)
+        vec2 dOff = vec2(0.0, 0.009);
+        float dDist = length((dUfo - dOff) / vec2(0.02, 0.016));
+        float dome = smoothstep(1.1, 0.85, dDist) * smoothstep(0.0, 0.004, dUfo.y);
+
+        // Rotating rim lights
+        float rimSum = 0.0;
+        for (int i = 0; i < 6; i++) {
+          float a = float(i) * 1.0472 + rawTime * 1.5;
+          vec2 lp = vec2(cos(a) * sW * 0.88, sin(a) * sH * 0.88);
+          rimSum += exp(-length(dUfo - lp) * 220.0);
+        }
+
+        // Underside glow (intensifies with beam)
+        float botGlow = exp(-length(dUfo / vec2(0.03, 0.01) + vec2(0.0, 1.2)) * 2.0);
+        botGlow *= 0.4 + 0.6 * beamStr;
+
+        // Assemble UFO
+        float ufoBody = max(saucer, dome);
+        vec3 ufoCol = c3 * 0.12;
+        ufoCol = mix(ufoCol, mix(c2, vec3(0.7), 0.25) * 0.5, dome / max(ufoBody, 0.001));
+        ufoCol += mix(c1, c2, 0.5) * botGlow * 0.7;
+        ufoCol += mix(c1, c4, fract(rawTime * 0.2 + float(0))) * rimSum;
+
+        col = mix(col, ufoCol, ufoBody * ufoVis);
+
+        // Ambient glow halo
+        col += mix(c1, c2, 0.5) * exp(-length(dUfo) * 26.0) * 0.1 * ufoVis;
+      }
+    }
+  }
+
   // --- Scanlines ---
   float scanline = 0.92 + 0.08 * sin(gl_FragCoord.y * 3.0);
   col *= scanline;
