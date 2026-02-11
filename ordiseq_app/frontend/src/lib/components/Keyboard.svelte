@@ -114,7 +114,7 @@
   }
 
   .key.white.active .label {
-    color: #fff;
+    color: rgb(var(--text-on-1));
   }
 
   .key.black {

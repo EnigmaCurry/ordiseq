@@ -178,6 +178,7 @@
 
   .compact-play.playing {
     background-color: rgb(var(--color-1));
+    color: rgb(var(--text-on-1));
   }
 
   .compact-note {
@@ -236,6 +237,7 @@
 
   .play-button.playing {
     background-color: rgb(var(--color-1));
+    color: rgb(var(--text-on-1));
   }
 
   .play-button.playing:hover {

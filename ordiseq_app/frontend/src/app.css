@@ -21,6 +21,8 @@
   --color-2: 0, 255, 222;    /* Secondary: values, links, info */
   --color-3: 183, 148, 246;  /* Tertiary: labels, borders */
   --color-4: 26, 26, 46;     /* Quaternary: button/input backgrounds */
+  --text-on-1: 255, 255, 255; /* Best-contrast text on color-1 bg */
+  --text-on-2: 0, 0, 0;       /* Best-contrast text on color-2 bg */
 
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
     Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;

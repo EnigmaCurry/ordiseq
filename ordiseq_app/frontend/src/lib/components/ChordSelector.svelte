@@ -77,7 +77,7 @@
 
   .root-btn.active {
     background: rgb(var(--color-1));
-    color: #fff;
+    color: rgb(var(--text-on-1));
     border-color: rgb(var(--color-2));
   }
 
@@ -106,7 +106,7 @@
 
   .chord-btn.active {
     background: rgb(var(--color-1));
-    color: #fff;
+    color: rgb(var(--text-on-1));
     border-color: rgb(var(--color-2));
   }
 </style>
