@@ -6,6 +6,7 @@ import matrixShader from "./shaders/matrix.frag.glsl?raw";
 import synthwaveShader from "./shaders/synthwave.frag.glsl?raw";
 import vhsShader from "./shaders/vhs.frag.glsl?raw";
 import tunnelShader from "./shaders/tunnel.frag.glsl?raw";
+import platonicShader from "./shaders/platonic.frag.glsl?raw";
 import { loadShaderSettings, saveShaderSettings, type ShaderSettings } from "./settingsStore";
 
 export interface ShaderConfig {
@@ -29,6 +30,7 @@ export const exampleShaders: Record<string, string> = {
   synthwave: synthwaveShader,
   vhs: vhsShader,
   tunnel: tunnelShader,
+  platonic: platonicShader,
 };
 
 const defaultConfig: ShaderConfig = {

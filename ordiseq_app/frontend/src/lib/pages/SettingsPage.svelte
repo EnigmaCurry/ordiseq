@@ -59,6 +59,7 @@
     { value: "synthwave", label: "Synthwave Sun" },
     { value: "vhs", label: "VHS Glitch" },
     { value: "tunnel", label: "Neon Tunnel" },
+    { value: "platonic", label: "Platonic" },
   ];
 
   let selectedShader = $state("plasma");
