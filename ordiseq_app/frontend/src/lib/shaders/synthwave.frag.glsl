@@ -115,7 +115,7 @@ void main() {
     sin(slowT * 0.47) * 0.5 +
     sin(slowT * 0.79 + 2.7) * 0.3 +
     sin(slowT * 0.31 + 5.3) * 0.2;
-  float heightOffset = 0.015 + (camH * 0.5 + 0.5) * 0.025;
+  float heightOffset = 0.01 + (camH * 0.5 + 0.5) * 0.0012;
 
   // --- Sun position (computed early for mirage haze) ---
   float sunPhase =
@@ -239,7 +239,28 @@ void main() {
 
     // Dark ground base with grid overlay
     vec3 groundBase = c3 * 0.02;
-    col = groundBase + gridCol * grid;
+    vec3 gridResult = groundBase + gridCol * grid;
+
+    // --- Road: center lane heading toward the sun ---
+    float roadHalf = 3.0;
+    float roadAA = fwidth(x) * 2.0;
+    float roadBlend = smoothstep(roadHalf + roadAA, roadHalf - roadAA, abs(x));
+
+    vec3 roadSurface = c4 * 0.12;
+    float markW = 0.12;
+    float markAA = fwidth(x) * 1.5;
+
+    // Solid edge lines
+    float edgeLine = smoothstep(markW + markAA, markW, abs(abs(x) - roadHalf));
+
+    // Dashed center line
+    float dashZ = step(0.5, fract(z * 0.05));
+    float centerLine = smoothstep(markW + markAA, markW, abs(x)) * dashZ;
+
+    float marks = max(edgeLine, centerLine) * (0.3 + 0.7 * fade);
+    vec3 roadCol = mix(roadSurface, c2, marks);
+
+    col = mix(gridResult, roadCol, roadBlend);
 
     // Horizon glow on ground
     float horizGlow = exp(-groundT * 6.0) * 0.3;
