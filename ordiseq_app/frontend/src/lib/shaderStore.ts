@@ -91,12 +91,24 @@ export const animationConfig = writable<AnimationConfig>({
 let animationFrame: number | null = null;
 let startTime = performance.now();
 
+// Irrational frequency ratios so the combined signal never repeats
+const PHI = 1.6180339887;    // golden ratio
+const SQRT2 = 1.4142135624;
+const SQRT3 = 1.7320508076;
+const SQRT5 = 2.2360679775;
+const E_FRAC = 0.7182818285; // e - 2
+
 function smoothNoise(t: number, freq: number, phase: number): number {
-  // Combine multiple sine waves for organic movement
+  // 6 sine waves with mutually irrational frequency ratios — aperiodic.
+  // Heavily weighted toward slow components for smooth, drifting motion.
+  // Fastest harmonic is only ~1.44x base freq (PHI * E_FRAC ≈ 1.16).
   return (
-    Math.sin(t * freq + phase) * 0.5 +
-    Math.sin(t * freq * 0.7 + phase * 1.3) * 0.3 +
-    Math.sin(t * freq * 1.3 + phase * 0.7) * 0.2
+    Math.sin(t * freq + phase) * 0.40 +
+    Math.sin(t * freq * E_FRAC + phase * PHI) * 0.22 +
+    Math.sin(t * freq * PHI * 0.5 + phase * SQRT2) * 0.15 +
+    Math.sin(t * freq * SQRT2 * 0.5 + phase * E_FRAC) * 0.10 +
+    Math.sin(t * freq * SQRT3 * 0.4 + phase * SQRT3) * 0.08 +
+    Math.sin(t * freq * SQRT5 * 0.3 + phase * 0.3819660113) * 0.05
   );
 }
 
@@ -113,10 +125,10 @@ function animationLoop() {
   const elapsed = (performance.now() - startTime) / 1000;
   const t = elapsed * speed * 10;
 
-  // Calculate animated values with different frequencies and phases
-  const pitchOffset = smoothNoise(t, 0.1, 0) * 180; // +/- 180 degrees
-  const zoomOffset = smoothNoise(t, 0.07, 2.5) * 8; // +/- 8 zoom
-  const fisheyeOffset = smoothNoise(t, 0.13, 5.0) * 0.3; // +/- 0.3
+  // Each parameter uses different freq/phase seeds for independent motion
+  const pitchOffset = smoothNoise(t, 0.1, 0.0) * 180;
+  const zoomOffset = smoothNoise(t, 0.07, 7.3) * 8;
+  const fisheyeOffset = smoothNoise(t, 0.13, 13.7) * 0.3;
 
   const newPitch = ((anim.basePitch + pitchOffset) % 360 + 360) % 360;
   const newZoom = Math.max(0.5, Math.min(32, anim.baseZoom + zoomOffset));
@@ -203,13 +215,72 @@ export interface ColorTheme {
 //   color4 = backgrounds (buttons, selects, inputs) - color1 must read clearly on this
 export const colorThemes: Record<string, ColorTheme> = {
   synthwave:  { label: "Synthwave",   color1: "#ff1493", color2: "#00ffde", color3: "#b794f6", color4: "#1a1a2e" },
-  sunset:     { label: "Sunset",      color1: "#ffb347", color2: "#ff6b6b", color3: "#c77dba", color4: "#2d1b3d" },
-  miami:      { label: "Miami Vice",  color1: "#f0c4e0", color2: "#4ecdc4", color3: "#a78bba", color4: "#1a3a4a" },
   outrun:     { label: "Outrun",      color1: "#ff6ec7", color2: "#7b68ee", color3: "#b8a9c9", color4: "#0d0221" },
   vapor:      { label: "Vaporwave",   color1: "#ff71ce", color2: "#01cdfe", color3: "#b967ff", color4: "#1b1235" },
+  miami:      { label: "Miami Vice",  color1: "#f0c4e0", color2: "#4ecdc4", color3: "#a78bba", color4: "#1a3a4a" },
+  tron:       { label: "Tron",        color1: "#6cffff", color2: "#ff8800", color3: "#7ca8c4", color4: "#0a0a1a" },
   neon:       { label: "Neon",        color1: "#39ff14", color2: "#00d4ff", color3: "#ff5e5e", color4: "#0a0a0a" },
+  sunset:     { label: "Sunset",      color1: "#ffb347", color2: "#ff6b6b", color3: "#c77dba", color4: "#2d1b3d" },
+  ember:      { label: "Ember",       color1: "#ff6633", color2: "#ffcc00", color3: "#b87850", color4: "#1a0e08" },
+  infrared:   { label: "Infrared",    color1: "#ff3355", color2: "#ff8844", color3: "#b86655", color4: "#1a0808" },
+  cherry:     { label: "Cherry",      color1: "#ff4466", color2: "#ffaacc", color3: "#b86b8a", color4: "#1a0a10" },
+  sakura:     { label: "Sakura",      color1: "#ffb7c5", color2: "#d4a5a5", color3: "#9b7e7e", color4: "#1a1218" },
+  candy:      { label: "Candy",       color1: "#ff99cc", color2: "#99ddff", color3: "#c4a0d0", color4: "#1a1020" },
+  amber:      { label: "Amber",       color1: "#ffbf00", color2: "#ff8c00", color3: "#cc9544", color4: "#1a1000" },
+  toxic:      { label: "Toxic",       color1: "#00ff88", color2: "#bf00ff", color3: "#8a7cb8", color4: "#0d1a0d" },
+  jade:       { label: "Jade",        color1: "#00d68f", color2: "#a8e6cf", color3: "#6b9e8a", color4: "#0a1a14" },
+  ocean:      { label: "Ocean",       color1: "#00bfff", color2: "#48d1cc", color3: "#6a8fa8", color4: "#0a1218" },
+  ice:        { label: "Ice",         color1: "#b8e4ff", color2: "#7ec8e3", color3: "#5a8fa8", color4: "#0a1520" },
   midnight:   { label: "Midnight",    color1: "#e0e0e0", color2: "#6eb5ff", color3: "#8b7ec8", color4: "#0f1729" },
+  slate:      { label: "Slate",       color1: "#94b8d0", color2: "#7a99b0", color3: "#607080", color4: "#121820" },
   monochrome: { label: "Monochrome",  color1: "#e0e0e0", color2: "#a0a0a0", color3: "#707070", color4: "#1a1a1a" },
+  revelation: { label: "Revelation",   color1: "#ffffff", color2: "#ff3b3b", color3: "#9a8c98", color4: "#120a0a" },
+  eden:       { label: "Eden",         color1: "#caffbf", color2: "#a0c4ff", color3: "#90a955", color4: "#0b1a0f" },
+  gatsby:     { label: "Gatsby",       color1: "#ffd700", color2: "#50c878", color3: "#c0c0c0", color4: "#0f1a1a" },
+  dracula:    { label: "Dracula",      color1: "#ff4d6d", color2: "#c0c0c0", color3: "#8d99ae", color4: "#120a12" },
+  sherlock:   { label: "Sherlock",     color1: "#e0e0e0", color2: "#7aa6c2", color3: "#6c757d", color4: "#111417" },
+  narnia:     { label: "Narnia",       color1: "#e6f7ff", color2: "#ffd166", color3: "#a8dadc", color4: "#0c1420" },
+  dune:       { label: "Dune",         color1: "#f4a261", color2: "#e76f51", color3: "#b08968", color4: "#1a120a" },
+  mordor:     { label: "Mordor",       color1: "#ff6b35", color2: "#c1121f", color3: "#6c584c", color4: "#140b0b" },
+  odyssey:    { label: "Odyssey",      color1: "#ffd166", color2: "#118ab2", color3: "#8ecae6", color4: "#0a1620" },
+  frankenstein:{ label: "Frankenstein",color1: "#8aff80", color2: "#c0c0c0", color3: "#7a918d", color4: "#0e1512" },
+  inferno:    { label: "Inferno",      color1: "#ff3c38", color2: "#ff9f1c", color3: "#b85c38", color4: "#1a0a0a" },
+    hal9000:     { label: "HAL 9000",       color1: "#ff3b3b", color2: "#ff9e9e", color3: "#a63c3c", color4: "#0b0b0f" },
+  mother:      { label: "MU/TH/UR",       color1: "#b4ff39", color2: "#39ff14", color3: "#7aa66a", color4: "#0a140a" },
+  skynet:      { label: "Skynet",         color1: "#ff5e5e", color2: "#00b3ff", color3: "#6c8ea3", color4: "#0a0f14" },
+  wintermute:  { label: "Wintermute",     color1: "#7df9ff", color2: "#9d4edd", color3: "#6a8fa8", color4: "#0b1020" },
+  neuromancer: { label: "Neuromancer",    color1: "#00ffd5", color2: "#ff00aa", color3: "#7b6c9d", color4: "#0a0f1a" },
+  trinity:     { label: "Trinity",        color1: "#39ff14", color2: "#ffffff", color3: "#6e8f6e", color4: "#0a0f0a" },
+  zion:        { label: "Zion Mainframe", color1: "#ffd166", color2: "#06d6a0", color3: "#b08968", color4: "#0f1414" },
+  jarvis:      { label: "JARVIS",         color1: "#7fd8ff", color2: "#ffffff", color3: "#6c9db8", color4: "#0a1620" },
+  friday:      { label: "FRIDAY",         color1: "#00e5ff", color2: "#ffd6ff", color3: "#7a8fa3", color4: "#0a141a" },
+  glados:      { label: "GLaDOS",         color1: "#ffae00", color2: "#ffffff", color3: "#b08968", color4: "#121212" },
+  deepthought: { label: "Deep Thought",   color1: "#ffd700", color2: "#00bfff", color3: "#8a9db0", color4: "#0f0f1a" },
+  colossus:    { label: "Colossus",       color1: "#ff4d4d", color2: "#c0c0c0", color3: "#8d99ae", color4: "#120c12" },
+  vger:        { label: "V'Ger",          color1: "#e0e0ff", color2: "#9bf6ff", color3: "#a0a0c0", color4: "#0a0f1f" },
+  redqueen:    { label: "Red Queen",      color1: "#ff2e63", color2: "#08d9d6", color3: "#b86b8a", color4: "#140a12" },
+  ed209:       { label: "ED-209",         color1: "#ff3c38", color2: "#7a7a7a", color3: "#8a8a8a", color4: "#111417" },
+  wopr:        { label: "WOPR",           color1: "#00ff7f", color2: "#ff5555", color3: "#7a918d", color4: "#0a120f" },
+  tachikoma:   { label: "Tachikoma",      color1: "#66ccff", color2: "#ffcc00", color3: "#7a9db8", color4: "#0a1420" },
+  omnius:      { label: "Omnius",         color1: "#ff8844", color2: "#ffcc00", color3: "#b08968", color4: "#140f0a" },
+
+  eniac:       { label: "ENIAC",          color1: "#ffbf00", color2: "#ff6f00", color3: "#c89b6d", color4: "#1a1208" },
+  colossus_mk1:{ label: "Colossus Mk I",  color1: "#00ffcc", color2: "#a8dadc", color3: "#6c9db8", color4: "#0a1416" },
+  univac:      { label: "UNIVAC",         color1: "#ffd6a5", color2: "#caffbf", color3: "#a0c4ff", color4: "#14120f" },
+  xeroxalto:   { label: "Xerox Alto",     color1: "#e0e0e0", color2: "#7fd8ff", color3: "#94b8d0", color4: "#0f1720" },
+  lisp_machine:{ label: "Lisp Machine",   color1: "#ff99cc", color2: "#cc99ff", color3: "#a78bba", color4: "#1a1020" },
+  symbolics:   { label: "Symbolics",      color1: "#ffd166", color2: "#9bf6ff", color3: "#b8a9c9", color4: "#120f1f" },
+  nextcube:    { label: "NeXTcube",       color1: "#ffffff", color2: "#00e5ff", color3: "#8d99ae", color4: "#0a0a0a" },
+  amiga:       { label: "Amiga",          color1: "#ff00aa", color2: "#00ffd5", color3: "#b967ff", color4: "#140a18" },
+  commodore64: { label: "Commodore 64",   color1: "#a0c4ff", color2: "#ffd6a5", color3: "#bdb2ff", color4: "#0a1020" },
+  appleii:     { label: "Apple II",       color1: "#ff6b6b", color2: "#ffd93d", color3: "#6bcBef", color4: "#141010" },
+  ibm5100:     { label: "IBM 5100",       color1: "#9ec1cf", color2: "#e0fbfc", color3: "#5c6b73", color4: "#0f1419" },
+  thinkpad:    { label: "ThinkPad",       color1: "#ff2e2e", color2: "#e0e0e0", color3: "#8a8a8a", color4: "#0a0a0a" },
+  vt100:       { label: "VT100",          color1: "#00ff66", color2: "#33ff99", color3: "#6e8f6e", color4: "#0a120a" },
+  terminal:    { label: "Green Terminal", color1: "#39ff14", color2: "#7fff00", color3: "#6c9e6c", color4: "#050a05" },
+  amberterm:   { label: "Amber Terminal", color1: "#ffb000", color2: "#ffd166", color3: "#c89b3c", color4: "#140f05" },
+  cyberdeck:   { label: "Cyberdeck",      color1: "#00f5ff", color2: "#ff00aa", color3: "#7b6c9d", color4: "#0a0f18" },
+  mainframe:   { label: "Mainframe",      color1: "#e0e0e0", color2: "#00bfff", color3: "#8b7ec8", color4: "#0f1729" },
 };
 
 export const selectedColorTheme = writable<string>("synthwave");

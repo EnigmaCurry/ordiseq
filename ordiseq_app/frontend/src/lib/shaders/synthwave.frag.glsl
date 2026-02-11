@@ -76,11 +76,16 @@ void main() {
     // Scrolling
     z += t * 8.0;
 
-    // Grid lines
-    float gridX = abs(fract(x * 0.5) - 0.5);
-    float gridZ = abs(fract(z * 0.2) - 0.5);
-    float lineX = smoothstep(0.02, 0.0, gridX);
-    float lineZ = smoothstep(0.02, 0.0, gridZ);
+    // Grid lines with screen-space anti-aliasing
+    float gridSpaceX = x * 0.5;
+    float gridSpaceZ = z * 0.2;
+    float gridX = abs(fract(gridSpaceX) - 0.5);
+    float gridZ = abs(fract(gridSpaceZ) - 0.5);
+    float aaX = fwidth(gridSpaceX) * 1.5;
+    float aaZ = fwidth(gridSpaceZ) * 1.5;
+    float lineWidth = 0.03;
+    float lineX = smoothstep(lineWidth + aaX, lineWidth, gridX);
+    float lineZ = smoothstep(lineWidth + aaZ, lineWidth, gridZ);
     float grid = max(lineX, lineZ);
 
     // Distance fade
