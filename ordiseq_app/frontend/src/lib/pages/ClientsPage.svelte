@@ -239,7 +239,7 @@
       const clip = euclideanToClip(rows);
       const pgm = getEditProgram(clientId) - 1; // 0-based for protocol
       await sendClipToClient(clientId, clip, pgm);
-      const result = await invoke<MidiInfo>("clip_to_midi_file", { clip });
+      const result = await invoke<MidiInfo>("clip_to_midi_file", { clip, repeats: 2 });
       midiInfos[clientId] = result;
     } catch (e) {
       console.error("Failed to sync clip:", e);
@@ -261,7 +261,7 @@
       const clip = await chordsToClip(seq, oct);
       const pgm = getEditProgram(clientId) - 1;
       await sendClipToClient(clientId, clip, pgm);
-      const result = await invoke<MidiInfo>("clip_to_midi_file", { clip });
+      const result = await invoke<MidiInfo>("clip_to_midi_file", { clip, repeats: 1 });
       midiInfos[clientId] = result;
     } catch (e) {
       console.error("Failed to sync chord clip:", e);
@@ -440,7 +440,7 @@
                 <div class="midi-drag-inline">
                   <MidiWidget midiInfo={midiInfos[client.id]} compact />
                   <span class="seq-select-spacer"></span>
-                  <span class="midi-drag-label">Drag to export 2x loop</span>
+                  <span class="midi-drag-label">{seqType === "chords" ? "Drag clip to export" : "Drag to export 2x loop"}</span>
                 </div>
               {/if}
             </div>

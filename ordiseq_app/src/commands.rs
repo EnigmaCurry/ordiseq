@@ -185,10 +185,10 @@ pub fn get_playback_status() -> PlaybackStatus {
 }
 
 #[tauri::command]
-pub fn clip_to_midi_file(clip: MidiClip) -> Result<MidiResult, String> {
-    const REPEATS: u32 = 2;
-    let mut raw_notes = Vec::with_capacity(clip.notes.len() * REPEATS as usize);
-    for rep in 0..REPEATS {
+pub fn clip_to_midi_file(clip: MidiClip, repeats: Option<u32>) -> Result<MidiResult, String> {
+    let repeats = repeats.unwrap_or(2).max(1);
+    let mut raw_notes = Vec::with_capacity(clip.notes.len() * repeats as usize);
+    for rep in 0..repeats {
         let offset = rep as f32 * clip.length_beats;
         for n in &clip.notes {
             raw_notes.push(RawClipNote {
@@ -201,7 +201,7 @@ pub fn clip_to_midi_file(clip: MidiClip) -> Result<MidiResult, String> {
         }
     }
 
-    let smf = clip_to_midi(clip.length_beats * REPEATS as f32, &raw_notes);
+    let smf = clip_to_midi(clip.length_beats * repeats as f32, &raw_notes);
 
     let temp_file = tempfile::Builder::new()
         .prefix("ordiseq_")
