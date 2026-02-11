@@ -15,15 +15,16 @@
     octaveStart: number;
     clientId: number;
     seqBeatPosition: number;
+    playbackActive?: boolean;
     onsequencechange: (sequence: SequenceChord[]) => void;
     onoctavechange: (octaveStart: number) => void;
   }
 
-  let { sequence, octaveStart, clientId, seqBeatPosition, onsequencechange, onoctavechange }: Props = $props();
+  let { sequence, octaveStart, clientId, seqBeatPosition, playbackActive = true, onsequencechange, onoctavechange }: Props = $props();
 
   const DRAG_THRESHOLD = 25;
 
-  let nextChordId = 0;
+  let nextChordId = Date.now();
   let dropTargetIndex: number = $state(-1);
   let replaceTargetIndex: number = $state(-1);
   let dropIndicatorLeft: number = $state(0);
@@ -433,7 +434,7 @@
 
   // Active chord from either DAW transport or one-shot sequence playback
   let seqPlaying = $derived(seqBeatPosition >= 0);
-  let playingBeat = $derived($transportPlaying ? $beatPosition : seqPlaying ? seqBeatPosition : -1);
+  let playingBeat = $derived(playbackActive ? ($transportPlaying ? $beatPosition : seqPlaying ? seqBeatPosition : -1) : -1);
   let playingActiveIndex = $derived(playingBeat >= 0 ? getActiveChordIndex(playingBeat) : -1);
 
   // Sync chord chooser to the currently playing chord

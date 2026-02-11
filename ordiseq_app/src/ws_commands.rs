@@ -103,6 +103,11 @@ pub fn get_sequence_position(server: State<WsServer>, client_id: u64) -> f64 {
 }
 
 #[tauri::command]
+pub fn disconnect_client(server: State<WsServer>, client_id: u64) {
+    server.disconnect_client(client_id);
+}
+
+#[tauri::command]
 pub fn set_listen_port(server: State<WsServer>, port: u16) -> Result<(), String> {
     if port == 0 {
         return Err("Port must be > 0".into());

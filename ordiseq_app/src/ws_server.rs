@@ -52,6 +52,7 @@ impl Default for SyncState {
 struct ClientState {
     info: ClientInfo,
     sender: std::sync::mpsc::Sender<String>,
+    stop: Arc<AtomicBool>,
 }
 
 pub struct WsServer {
@@ -161,6 +162,7 @@ impl WsServer {
 
         // Create outbound channel for this client
         let (out_tx, out_rx) = std::sync::mpsc::channel::<String>();
+        let client_stop = Arc::new(AtomicBool::new(false));
 
         // Register client with placeholder info
         {
@@ -179,11 +181,14 @@ impl WsServer {
                         seq_beat_position: -1.0,
                     },
                     sender: out_tx,
+                    stop: client_stop.clone(),
                 },
             );
         }
 
         eprintln!("WsServer: client {client_id} connected");
+
+        let mut last_ping = std::time::Instant::now();
 
         // Main loop
         loop {
@@ -191,6 +196,12 @@ impl WsServer {
                 eprintln!("WsServer: client {client_id} handler stopping (server restart)");
                 let _ = ws.close(None);
                 Self::remove_client(&clients, client_id, &sync_source, &sync_state);
+                return;
+            }
+
+            if client_stop.load(Ordering::Relaxed) {
+                eprintln!("WsServer: client {client_id} force-disconnected");
+                let _ = ws.close(None);
                 return;
             }
 
@@ -204,9 +215,9 @@ impl WsServer {
 
             // Read inbound
             match ws.read() {
-                Ok(Message::Text(text)) => {
-                    if let Ok(plugin_msg) = serde_json::from_str::<PluginMessage>(&text) {
-                        match plugin_msg {
+                Ok(Message::Text(ref text)) => {
+                    match serde_json::from_str::<PluginMessage>(text) {
+                        Ok(plugin_msg) => match plugin_msg {
                             PluginMessage::Register { name, version } => {
                                 let mut map = clients.write().unwrap();
                                 let unique_name = Self::deduplicate_name(&name, client_id, &map);
@@ -280,7 +291,8 @@ impl WsServer {
                                     client.info.seq_beat_position = beat_position;
                                 }
                             }
-                        }
+                        },
+                        Err(_) => {}
                     }
                 }
                 Ok(Message::Ping(data)) => {
@@ -298,11 +310,19 @@ impl WsServer {
                     // Normal timeout
                 }
                 Err(_) => {
-                    eprintln!("WsServer: client {client_id} disconnected");
                     Self::remove_client(&clients, client_id, &sync_source, &sync_state);
                     return;
                 }
                 _ => {}
+            }
+
+            // Periodic ping to detect dead connections
+            if last_ping.elapsed() > Duration::from_secs(5) {
+                last_ping = std::time::Instant::now();
+                if ws.send(Message::Ping(vec![])).is_err() {
+                    Self::remove_client(&clients, client_id, &sync_source, &sync_state);
+                    return;
+                }
             }
         }
     }
@@ -546,6 +566,15 @@ impl WsServer {
             }
         }
         *self.sync_state.write().unwrap() = SyncState::default();
+    }
+
+    pub fn disconnect_client(&self, client_id: ClientId) {
+        let map = self.clients.read().unwrap();
+        if let Some(client) = map.get(&client_id) {
+            client.stop.store(true, Ordering::Relaxed);
+        }
+        drop(map);
+        Self::remove_client(&self.clients, client_id, &self.sync_source, &self.sync_state);
     }
 
     pub fn get_sequence_position(&self, client_id: ClientId) -> f64 {

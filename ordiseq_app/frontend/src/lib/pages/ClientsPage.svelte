@@ -68,15 +68,25 @@
   // Per-client play mode for current edit program
   let playModes = $state<Record<number, "transport" | "note_trigger">>({});
 
+  // Per-client collapsed state
+  let collapsed = $state<Record<number, boolean>>({});
+
   // Track which client IDs have been initialized from storage
   let initializedIds = new Set<number>();
 
   // Debounce timer per client
   let syncTimers: Record<number, ReturnType<typeof setTimeout>> = {};
 
+  // Fix duplicate chord IDs in sequences loaded from storage
+  let nextFixId = Date.now();
+  function fixChordIds(seq: SequenceChord[]): SequenceChord[] {
+    return seq.map(c => ({ ...c, id: `c${nextFixId++}` }));
+  }
+
   // Restore saved configs when new clients appear
   $effect(() => {
-    for (const client of $clients) {
+    const currentClients = $clients;
+    for (const client of currentClients) {
       if (!initializedIds.has(client.id)) {
         initializedIds.add(client.id);
         const pgm = editPrograms[client.id] ?? 1;
@@ -84,15 +94,15 @@
         if (stored) {
           sequencerTypes[client.id] = stored.type;
           euclideanRows[client.id] = stored.rows;
-          chordSequences[client.id] = stored.chordSequence ?? [];
+          chordSequences[client.id] = fixChordIds(stored.chordSequence ?? []);
           octaveStarts[client.id] = stored.octaveStart ?? 48;
           playModes[client.id] = stored.noteTrigger ? "note_trigger" : "transport";
+          sendPlayModeToClient(client.id, pgm - 1, stored.noteTrigger ?? false);
           if (stored.type === "euclidean" && stored.rows.length > 0) {
             syncToClient(client.id);
           } else if (stored.type === "chords" && (stored.chordSequence?.length ?? 0) > 0) {
             syncChordsToClient(client.id);
           }
-          sendPlayModeToClient(client.id, pgm - 1, stored.noteTrigger ?? false);
         }
       }
     }
@@ -134,6 +144,8 @@
   function setEditProgram(clientId: number, pgm: number) {
     const oldPgm = getEditProgram(clientId);
     if (pgm === oldPgm) return;
+    // Cancel any pending debounced sync from the old program
+    if (syncTimers[clientId]) { clearTimeout(syncTimers[clientId]); delete syncTimers[clientId]; }
     // Save current config for old program
     persistConfig(clientId);
     // Switch to new program
@@ -144,7 +156,7 @@
     if (stored) {
       sequencerTypes[clientId] = stored.type;
       euclideanRows[clientId] = stored.rows;
-      chordSequences[clientId] = stored.chordSequence ?? [];
+      chordSequences[clientId] = fixChordIds(stored.chordSequence ?? []);
       octaveStarts[clientId] = stored.octaveStart ?? 48;
       playModes[clientId] = stored.noteTrigger ? "note_trigger" : "transport";
       midiInfos[clientId] = undefined as any;
@@ -261,10 +273,10 @@
   async function syncToClient(clientId: number) {
     const rows = euclideanRows[clientId];
     if (!rows || rows.length === 0) return;
+    const pgm = getEditProgram(clientId) - 1; // capture before any await
     persistConfig(clientId);
     try {
       const clip = euclideanToClip(rows);
-      const pgm = getEditProgram(clientId) - 1; // 0-based for protocol
       await sendClipToClient(clientId, clip, pgm);
       const result = await invoke<MidiInfo>("clip_to_midi_file", { clip, repeats: 2 });
       midiInfos[clientId] = result;
@@ -275,8 +287,8 @@
 
   async function syncChordsToClient(clientId: number) {
     const seq = chordSequences[clientId];
+    const pgm = getEditProgram(clientId) - 1; // capture before any await
     if (!seq || seq.length === 0) {
-      const pgm = getEditProgram(clientId) - 1;
       sendClipToClient(clientId, { name: "Empty", length_beats: 1, notes: [] }, pgm);
       midiInfos[clientId] = undefined as any;
       persistConfig(clientId);
@@ -286,7 +298,6 @@
     try {
       const oct = octaveStarts[clientId] ?? 48;
       const clip = await chordsToClip(seq, oct);
-      const pgm = getEditProgram(clientId) - 1;
       await sendClipToClient(clientId, clip, pgm);
       const result = await invoke<MidiInfo>("clip_to_midi_file", { clip, repeats: 1 });
       midiInfos[clientId] = result;
@@ -428,9 +439,13 @@
               </span>
             {/if}
             <span class="client-version">{client.version}</span>
+            <button class="disconnect-btn" onclick={() => invoke("disconnect_client", { clientId: client.id })} title="Disconnect">×</button>
           </div>
 
-          <div class="client-info">
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="client-info" onclick={() => collapsed[client.id] = !collapsed[client.id]}>
+            <span class="collapse-chevron" class:open={!collapsed[client.id]}>&#9654;</span>
             {#if $syncState.source_client_id === client.id}
               <div class="info-row">
                 <span class="beat-dot" style="opacity: {0.15 + 0.85 * Math.max(0, Math.cos(($beatPosition % 1.0) * 2 * Math.PI))}"></span>
@@ -450,6 +465,7 @@
             </div>
           </div>
 
+          {#if !collapsed[client.id]}
           <div class="sequencer-section">
             <div class="seq-select-row">
               <Dial value={getEditProgram(client.id)} min={1} max={16}
@@ -577,12 +593,14 @@
                 octaveStart={octaveStarts[client.id] ?? 48}
                 clientId={client.id}
                 seqBeatPosition={seqPositions[client.id] ?? -1}
+                playbackActive={client.program === getEditProgram(client.id) - 1}
                 onsequencechange={(seq) => handleChordSequenceChange(client.id, seq)}
                 onoctavechange={(oct) => handleOctaveChange(client.id, oct)}
               />
             {/if}
 
           </div>
+          {/if}
         </div>
       {/each}
     </div>
@@ -658,10 +676,46 @@
     color: #666;
   }
 
+  .disconnect-btn {
+    margin-left: auto;
+    padding: 0 6px;
+    font-size: 1.1rem;
+    line-height: 1;
+    background: none;
+    border: 1px solid rgba(255, 80, 80, 0.3);
+    border-radius: 4px;
+    color: #888;
+    cursor: pointer;
+  }
+
+  .disconnect-btn:hover {
+    color: #ff5555;
+    background: rgba(255, 80, 80, 0.15);
+  }
+
   .client-info {
     display: flex;
+    align-items: center;
     gap: 1.5rem;
     margin-bottom: 0.75rem;
+    cursor: pointer;
+    padding: 4px 0;
+    border-radius: 4px;
+  }
+
+  .client-info:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .collapse-chevron {
+    font-size: 0.6rem;
+    color: #666;
+    transition: transform 0.15s;
+    flex-shrink: 0;
+  }
+
+  .collapse-chevron.open {
+    transform: rotate(90deg);
   }
 
   .info-row {
