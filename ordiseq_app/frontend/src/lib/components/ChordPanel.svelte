@@ -24,6 +24,7 @@
 
   let nextChordId = 0;
   let dropTargetIndex: number = $state(-1);
+  let replaceTargetIndex: number = $state(-1);
   let dropIndicatorLeft: number = $state(0);
   let sequenceEl: HTMLElement | undefined = $state(undefined);
 
@@ -80,14 +81,28 @@
     return cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom;
   }
 
-  function calcDropIndex(cx: number): number {
-    if (!sequenceEl || sequence.length === 0) return 0;
+  interface DropTarget {
+    mode: 'insert' | 'replace';
+    index: number;
+  }
+
+  function calcDropTarget(cx: number): DropTarget {
+    if (!sequenceEl || sequence.length === 0) return { mode: 'insert', index: 0 };
     const chordEls = sequenceEl.querySelectorAll('.seq-chord');
     for (let i = 0; i < chordEls.length; i++) {
       const rect = chordEls[i].getBoundingClientRect();
-      if (cx < rect.left + rect.width / 2) return i;
+      if (cx >= rect.left && cx <= rect.right) {
+        const frac = (cx - rect.left) / rect.width;
+        if (frac < 0.25) return { mode: 'insert', index: i };
+        if (frac > 0.75) return { mode: 'insert', index: i + 1 };
+        return { mode: 'replace', index: i };
+      }
     }
-    return sequence.length;
+    for (let i = 0; i < chordEls.length; i++) {
+      const rect = chordEls[i].getBoundingClientRect();
+      if (cx < rect.left + rect.width / 2) return { mode: 'insert', index: i };
+    }
+    return { mode: 'insert', index: sequence.length };
   }
 
   function updateIndicatorPosition(idx: number) {
@@ -121,6 +136,7 @@
     pendingKeyToggle = null;
     drag = null;
     dropTargetIndex = -1;
+    replaceTargetIndex = -1;
   }
 
   function cancelDrag() {
@@ -132,6 +148,7 @@
     dragWasActive = drag?.active ?? false;
     drag = null;
     dropTargetIndex = -1;
+    replaceTargetIndex = -1;
   }
 
   function addDragListeners() {
@@ -143,6 +160,7 @@
 
   function startNewChordDrag(e: MouseEvent, root: number, chordType: string) {
     if (e.button !== 0) return;
+    e.preventDefault();
     cleanupDragListeners();
     const cn = chordType === "Custom" ? [...activeNotes].sort((a, b) => a - b) : undefined;
     drag = { type: 'new', root, chordType, customNotes: cn, sourceIndex: -1, startX: e.clientX, startY: e.clientY, active: false };
@@ -152,6 +170,7 @@
   function startReorderDrag(e: MouseEvent, i: number) {
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest('button')) return;
+    e.preventDefault();
     cleanupDragListeners();
     const chord = sequence[i];
     drag = { type: 'reorder', root: chord.root, chordType: chord.chordType, sourceIndex: i, startX: e.clientX, startY: e.clientY, active: false };
@@ -173,11 +192,19 @@
     ghostY = e.clientY;
 
     if (isOverSequence(e.clientX, e.clientY)) {
-      const idx = calcDropIndex(e.clientX);
-      dropTargetIndex = idx;
-      updateIndicatorPosition(idx);
+      const target = calcDropTarget(e.clientX);
+      if (target.mode === 'replace' && !(drag.type === 'reorder' && drag.sourceIndex === target.index)) {
+        replaceTargetIndex = target.index;
+        dropTargetIndex = -1;
+      } else {
+        const idx = target.mode === 'insert' ? target.index : (target.index + 1);
+        dropTargetIndex = idx;
+        replaceTargetIndex = -1;
+        updateIndicatorPosition(idx);
+      }
     } else {
       dropTargetIndex = -1;
+      replaceTargetIndex = -1;
     }
   }
 
@@ -185,20 +212,41 @@
     cleanupDragListeners();
 
     if (drag?.active && isOverSequence(e.clientX, e.clientY)) {
-      const idx = calcDropIndex(e.clientX);
+      const target = calcDropTarget(e.clientX);
 
-      if (drag.type === 'new') {
-        const newChord: SequenceChord = { id: genId(), root: drag.root, chordType: drag.chordType, bars: 1 };
-        if (drag.customNotes) {
-          newChord.customNotes = drag.customNotes;
-          newChord.customLabel = chordNames[0] || undefined;
+      if (target.mode === 'replace' && !(drag.type === 'reorder' && drag.sourceIndex === target.index)) {
+        // Replace an existing chord
+        if (drag.type === 'new') {
+          const newChord: SequenceChord = { id: genId(), root: drag.root, chordType: drag.chordType, bars: sequence[target.index].bars };
+          if (drag.customNotes) {
+            newChord.customNotes = drag.customNotes;
+            newChord.customLabel = chordNames[0] || undefined;
+          }
+          emitSequence(sequence.map((c, i) => i === target.index ? newChord : c));
+        } else if (drag.type === 'reorder' && drag.sourceIndex >= 0) {
+          const source = sequence[drag.sourceIndex];
+          const targetBars = sequence[target.index].bars;
+          emitSequence(
+            sequence.map((c, i) => i === target.index ? { ...source, bars: targetBars } : c)
+              .filter((_, i) => i !== drag!.sourceIndex)
+          );
         }
-        emitSequence([...sequence.slice(0, idx), newChord, ...sequence.slice(idx)]);
-      } else if (drag.type === 'reorder' && drag.sourceIndex >= 0) {
-        const chord = sequence[drag.sourceIndex];
-        const filtered = sequence.filter((_, i) => i !== drag!.sourceIndex);
-        const insertAt = idx > drag.sourceIndex ? idx - 1 : idx;
-        emitSequence([...filtered.slice(0, insertAt), chord, ...filtered.slice(insertAt)]);
+      } else {
+        // Insert between chords
+        const idx = target.mode === 'insert' ? target.index : (target.index + 1);
+        if (drag.type === 'new') {
+          const newChord: SequenceChord = { id: genId(), root: drag.root, chordType: drag.chordType, bars: 1 };
+          if (drag.customNotes) {
+            newChord.customNotes = drag.customNotes;
+            newChord.customLabel = chordNames[0] || undefined;
+          }
+          emitSequence([...sequence.slice(0, idx), newChord, ...sequence.slice(idx)]);
+        } else if (drag.type === 'reorder' && drag.sourceIndex >= 0) {
+          const chord = sequence[drag.sourceIndex];
+          const filtered = sequence.filter((_, i) => i !== drag!.sourceIndex);
+          const insertAt = idx > drag.sourceIndex ? idx - 1 : idx;
+          emitSequence([...filtered.slice(0, insertAt), chord, ...filtered.slice(insertAt)]);
+        }
       }
     }
 
@@ -210,6 +258,7 @@
     dragWasActive = drag?.active ?? false;
     drag = null;
     dropTargetIndex = -1;
+    replaceTargetIndex = -1;
   }
 
   function selectSequenceChord(i: number) {
@@ -219,6 +268,10 @@
     selectedChordType = chord.chordType;
     if (chord.chordType === "Custom" && chord.customNotes) {
       activeNotes = new Set(chord.customNotes);
+      const notes = chord.customNotes.map(n => ({ note: n, channel: 0, velocity: 0.8 }));
+      invoke("send_live_notes", { clientId, notes, durationBeats: 0.0 });
+    } else {
+      triggerChord();
     }
   }
 
@@ -257,7 +310,13 @@
   }
 
   function triggerChord() {
-    if (selectedChordType === "Custom") return;
+    if (selectedChordType === "Custom") {
+      if (activeNotes.size > 0) {
+        const notes = [...activeNotes].map(n => ({ note: n, channel: 0, velocity: 0.8 }));
+        invoke("send_live_notes", { clientId, notes, durationBeats: 0.0 });
+      }
+      return;
+    }
     const rootMidi = octaveStart + selectedRoot;
     invoke<number[]>("trigger_live_chord", {
       clientId,
@@ -331,6 +390,7 @@
     {sequence}
     activeChordIndex={$transportPlaying ? getActiveChordIndex($beatPosition) : -1}
     {dropTargetIndex}
+    {replaceTargetIndex}
     {dropIndicatorLeft}
     dragSourceIndex={drag?.type === 'reorder' ? drag.sourceIndex : -1}
     dragActive={drag?.active ?? false}

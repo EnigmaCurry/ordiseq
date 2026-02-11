@@ -15,6 +15,7 @@
     sequence: SequenceChord[];
     activeChordIndex: number;
     dropTargetIndex: number;
+    replaceTargetIndex: number;
     dropIndicatorLeft: number;
     dragSourceIndex: number;
     dragActive: boolean;
@@ -28,7 +29,7 @@
   }
 
   let {
-    sequence, activeChordIndex, dropTargetIndex, dropIndicatorLeft,
+    sequence, activeChordIndex, dropTargetIndex, replaceTargetIndex, dropIndicatorLeft,
     dragSourceIndex, dragActive, totalBars,
     onremove, onadjustduration, onstartreorderdrag, onselect,
     onclear, onbindel,
@@ -51,7 +52,7 @@
   </div>
   <div
     class="sequence-track"
-    class:drag-active={dropTargetIndex >= 0}
+    class:drag-active={dropTargetIndex >= 0 || replaceTargetIndex >= 0}
     bind:this={sequenceEl}
   >
     {#if sequence.length === 0 && dropTargetIndex < 0}
@@ -62,6 +63,7 @@
           class="seq-chord"
           class:dragging={dragActive && dragSourceIndex === i}
           class:playing-chord={activeChordIndex === i}
+          class:replace-target={replaceTargetIndex === i}
           onmousedown={(e) => onstartreorderdrag(e, i)}
           onclick={() => onselect(i)}
           style="width: {chord.bars * BAR_WIDTH}px"
@@ -184,6 +186,13 @@
     border-left-color: rgb(var(--color-1));
     outline-color: rgb(var(--color-1));
     box-shadow: 0 0 8px rgba(var(--color-1), 0.3);
+  }
+
+  .seq-chord.replace-target {
+    background: rgba(var(--color-1), 0.18);
+    border-color: rgba(var(--color-1), 0.5);
+    border-left-color: rgb(var(--color-1));
+    outline: 2px solid rgba(var(--color-1), 0.7);
   }
 
   .seq-chord-name {
