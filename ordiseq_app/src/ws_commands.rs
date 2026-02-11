@@ -1,4 +1,4 @@
-use crate::protocol::{LiveNote, MidiClip};
+use crate::protocol::{AppMessage, LiveNote, MidiClip};
 use crate::ws_server::{ClientInfo, SyncStateInfo, WsServer};
 use tauri::State;
 
@@ -85,6 +85,21 @@ pub fn get_sync_state(server: State<WsServer>) -> SyncStateInfo {
 #[tauri::command]
 pub fn get_listen_port(server: State<WsServer>) -> u16 {
     server.get_port()
+}
+
+#[tauri::command]
+pub fn play_sequence(server: State<WsServer>, client_id: u64, clip: MidiClip) -> Result<(), String> {
+    server.send_app_message(client_id, &AppMessage::SequencePlay { clip })
+}
+
+#[tauri::command]
+pub fn stop_sequence(server: State<WsServer>, client_id: u64) -> Result<(), String> {
+    server.send_app_message(client_id, &AppMessage::SequenceStop)
+}
+
+#[tauri::command]
+pub fn get_sequence_position(server: State<WsServer>, client_id: u64) -> f64 {
+    server.get_sequence_position(client_id)
 }
 
 #[tauri::command]

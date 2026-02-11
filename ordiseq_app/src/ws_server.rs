@@ -19,6 +19,7 @@ pub struct ClientInfo {
     pub playing: bool,
     pub connected: bool,
     pub program: u8,
+    pub seq_beat_position: f64,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -175,6 +176,7 @@ impl WsServer {
                         playing: false,
                         connected: true,
                         program: 0,
+                        seq_beat_position: -1.0,
                     },
                     sender: out_tx,
                 },
@@ -270,6 +272,12 @@ impl WsServer {
                                     state.bpm = bpm;
                                     state.playing = playing;
                                     state.received_at_ms = now_ms;
+                                }
+                            }
+                            PluginMessage::SequencePosition { beat_position } => {
+                                let mut map = clients.write().unwrap();
+                                if let Some(client) = map.get_mut(&client_id) {
+                                    client.info.seq_beat_position = beat_position;
                                 }
                             }
                         }
@@ -489,6 +497,18 @@ impl WsServer {
             .map_err(|e| format!("Failed to send: {e}"))
     }
 
+    pub fn send_app_message(&self, client_id: ClientId, msg: &AppMessage) -> Result<(), String> {
+        let map = self.clients.read().unwrap();
+        let client = map
+            .get(&client_id)
+            .ok_or_else(|| format!("Client {client_id} not found"))?;
+        let json = serde_json::to_string(msg).map_err(|e| e.to_string())?;
+        client
+            .sender
+            .send(json)
+            .map_err(|e| format!("Failed to send: {e}"))
+    }
+
     pub fn set_sync_source(&self, client_id: ClientId) -> Result<(), String> {
         let map = self.clients.read().unwrap();
 
@@ -526,6 +546,11 @@ impl WsServer {
             }
         }
         *self.sync_state.write().unwrap() = SyncState::default();
+    }
+
+    pub fn get_sequence_position(&self, client_id: ClientId) -> f64 {
+        let map = self.clients.read().unwrap();
+        map.get(&client_id).map_or(-1.0, |c| c.info.seq_beat_position)
     }
 
     pub fn get_sync_state(&self) -> SyncStateInfo {

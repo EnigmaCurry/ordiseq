@@ -184,6 +184,13 @@ struct OrdiseqPlug {
     fill_heat: f64,
     fill_note_cursor: usize,
     fill_loop_count: u64,
+
+    // App-controlled sequence playback (independent of DAW transport)
+    sequence_clip: Option<MidiClip>,
+    sequence_playing: bool,
+    seq_samples_elapsed: u64,
+    seq_active_notes: Vec<ActiveNote>,
+    seq_position_counter: u64,
 }
 
 impl Default for OrdiseqPlug {
@@ -219,6 +226,11 @@ impl Default for OrdiseqPlug {
             fill_heat: 0.0,
             fill_note_cursor: 0,
             fill_loop_count: 0,
+            sequence_clip: None,
+            sequence_playing: false,
+            seq_samples_elapsed: 0,
+            seq_active_notes: Vec::new(),
+            seq_position_counter: 0,
         }
     }
 }
@@ -226,6 +238,15 @@ impl Default for OrdiseqPlug {
 impl OrdiseqPlug {
     fn stop_all_notes(&mut self, context: &mut impl ProcessContext<Self>) {
         for note in self.active_notes.drain(..) {
+            context.send_event(NoteEvent::NoteOff {
+                timing: 0,
+                voice_id: None,
+                channel: note.channel,
+                note: note.note,
+                velocity: 0.0,
+            });
+        }
+        for note in self.seq_active_notes.drain(..) {
             context.send_event(NoteEvent::NoteOff {
                 timing: 0,
                 voice_id: None,
@@ -309,6 +330,17 @@ impl OrdiseqPlug {
                             self.pending_live_notes.push((n, duration_beats));
                         }
                     }
+                }
+                AppMessage::SequencePlay { clip } => {
+                    self.sequence_clip = Some(clip);
+                    self.sequence_playing = true;
+                    self.seq_samples_elapsed = 0;
+                    self.seq_position_counter = 0;
+                    // Kill existing sequence notes (will be handled in process)
+                }
+                AppMessage::SequenceStop => {
+                    self.sequence_playing = false;
+                    // Kill existing sequence notes (will be handled in process)
                 }
                 AppMessage::Ping | AppMessage::StartSync | AppMessage::StopSync => {
                     // Handled on WS thread, no action needed here
@@ -429,6 +461,11 @@ impl Plugin for OrdiseqPlug {
         self.fill_cached_version = u64::MAX;
         self.fill_cached_program = usize::MAX;
         self.reset_fill_state();
+        self.sequence_clip = None;
+        self.sequence_playing = false;
+        self.seq_samples_elapsed = 0;
+        self.seq_active_notes.clear();
+        self.seq_position_counter = 0;
 
         // Migrate and sync programs from persisted state
         if let Ok(mut state) = self.params.plugin_state.write() {
@@ -674,6 +711,129 @@ impl Plugin for OrdiseqPlug {
                     self.held_notes = self.held_notes.saturating_sub(1);
                 }
                 _ => {}
+            }
+        }
+
+        // --- App-controlled sequence playback (independent of DAW transport) ---
+        // Kill sequence notes when stopped
+        if !self.sequence_playing && !self.seq_active_notes.is_empty() {
+            for note in self.seq_active_notes.drain(..) {
+                context.send_event(NoteEvent::NoteOff {
+                    timing: 0,
+                    voice_id: None,
+                    channel: note.channel,
+                    note: note.note,
+                    velocity: 0.0,
+                });
+            }
+        }
+
+        if self.sequence_playing {
+            if let Some(seq_clip) = &self.sequence_clip {
+                if !seq_clip.notes.is_empty() && seq_clip.length_beats > 0.0 {
+                    let seq_sr = self.sample_rate as f64;
+                    let seq_bpm = transport_tempo.unwrap_or(DEFAULT_TEMPO_BPM);
+                    let seq_bps = seq_bpm / 60.0;
+                    let seq_spb = seq_sr / seq_bps;
+                    let seq_clip_samples = (seq_clip.length_beats as f64 * seq_spb) as u64;
+
+                    if seq_clip_samples > 0 {
+                        let buf_len = _buffer.samples() as u64;
+                        let mut seq_processed: u64 = 0;
+
+                        while seq_processed < buf_len {
+                            let pos_in_clip = self.seq_samples_elapsed % seq_clip_samples;
+                            let pos_beats = pos_in_clip as f64 / seq_spb;
+
+                            let remaining = buf_len - seq_processed;
+                            let to_clip_end = seq_clip_samples - pos_in_clip;
+                            let chunk = remaining.min(to_clip_end);
+
+                            let chunk_start_beats = pos_beats;
+                            let chunk_end_beats = (pos_in_clip + chunk) as f64 / seq_spb;
+
+                            // Note-ons
+                            for cn in &seq_clip.notes {
+                                let ns = cn.start_beats as f64;
+                                if ns >= chunk_start_beats && ns < chunk_end_beats {
+                                    let offset = ((ns - chunk_start_beats) * seq_spb) as u32;
+                                    let timing = (seq_processed as u32) + offset;
+                                    context.send_event(NoteEvent::NoteOn {
+                                        timing,
+                                        voice_id: None,
+                                        channel: cn.channel,
+                                        note: cn.note,
+                                        velocity: cn.velocity.clamp(0.0, 1.0),
+                                    });
+                                    let dur_samples = (cn.duration_beats as f64 * seq_spb) as u64;
+                                    self.seq_active_notes.push(ActiveNote {
+                                        channel: cn.channel,
+                                        note: cn.note,
+                                        off_sample: self.seq_samples_elapsed + offset as u64 + dur_samples,
+                                        is_live: false,
+                                    });
+                                }
+                            }
+
+                            // Note-offs
+                            let abs_chunk_end = self.seq_samples_elapsed + chunk;
+                            let mut i = 0;
+                            while i < self.seq_active_notes.len() {
+                                if self.seq_active_notes[i].off_sample <= abs_chunk_end {
+                                    let note = &self.seq_active_notes[i];
+                                    let off_t = if note.off_sample > self.seq_samples_elapsed {
+                                        (note.off_sample - self.seq_samples_elapsed + seq_processed) as u32
+                                    } else {
+                                        seq_processed as u32
+                                    };
+                                    let off_t = off_t.min((buf_len - 1) as u32);
+                                    context.send_event(NoteEvent::NoteOff {
+                                        timing: off_t,
+                                        voice_id: None,
+                                        channel: note.channel,
+                                        note: note.note,
+                                        velocity: 0.0,
+                                    });
+                                    self.seq_active_notes.swap_remove(i);
+                                } else {
+                                    i += 1;
+                                }
+                            }
+
+                            seq_processed += chunk;
+                            self.seq_samples_elapsed += chunk;
+
+                            // Loop wrap: kill remaining sequence notes
+                            if self.seq_samples_elapsed % seq_clip_samples == 0
+                                && !self.seq_active_notes.is_empty()
+                            {
+                                let timing = seq_processed.min(buf_len - 1) as u32;
+                                for note in self.seq_active_notes.drain(..) {
+                                    context.send_event(NoteEvent::NoteOff {
+                                        timing,
+                                        voice_id: None,
+                                        channel: note.channel,
+                                        note: note.note,
+                                        velocity: 0.0,
+                                    });
+                                }
+                            }
+                        }
+
+                        // Report position at ~10Hz
+                        let samples_per_report = (self.sample_rate / 10.0) as u64;
+                        self.seq_position_counter += buf_len;
+                        if self.seq_position_counter >= samples_per_report {
+                            self.seq_position_counter = 0;
+                            let beat_pos = (self.seq_samples_elapsed % seq_clip_samples) as f64 / seq_spb;
+                            if let Some(tx) = &self.ws_outbox {
+                                let _ = tx.try_send(PluginMessage::SequencePosition {
+                                    beat_position: beat_pos,
+                                });
+                            }
+                        }
+                    }
+                }
             }
         }
 

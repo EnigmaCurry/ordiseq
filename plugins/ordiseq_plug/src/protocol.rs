@@ -23,6 +23,9 @@ pub enum PluginMessage {
         bpm: f64,
         playing: bool,
     },
+    SequencePosition {
+        beat_position: f64,
+    },
 }
 
 // -- App -> Plugin --
@@ -50,6 +53,10 @@ pub enum AppMessage {
         notes: Vec<LiveNote>,
         duration_beats: f32,
     },
+    SequencePlay {
+        clip: MidiClip,
+    },
+    SequenceStop,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
