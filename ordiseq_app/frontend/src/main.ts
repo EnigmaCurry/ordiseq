@@ -3,13 +3,15 @@ import App from "./App.svelte";
 import ShaderBackground from "./lib/ShaderBackground.svelte";
 import { mount } from "svelte";
 import { themeColors, applyTheme } from "./lib/themeStore";
-import { initializeSettings, randomizeTheme } from "./lib/shaderStore";
-import { loadAlwaysOnTop, loadIconShape, loadShaderSettings, loadWindowPosition, saveWindowPosition } from "./lib/settingsStore";
+import { initializeSettings, randomizeTheme, randomizeShader } from "./lib/shaderStore";
+import { loadAlwaysOnTop, loadIconShape, loadShaderSettings, loadWindowPosition, saveWindowPosition, loadLastPage, saveLastPage } from "./lib/settingsStore";
 import type { WindowPosition } from "./lib/settingsStore";
 import { applyIcon } from "./lib/iconGenerator";
 import { getCurrentWindow, availableMonitors, PhysicalPosition } from "@tauri-apps/api/window";
 import type { Monitor } from "@tauri-apps/api/window";
-import { startPolling } from "./lib/clientsStore";
+import { startPolling, clients } from "./lib/clientsStore";
+import { currentPage } from "./lib/router";
+import { get } from "svelte/store";
 import { startTransportSync } from "./lib/transportStore";
 
 function isWindowWithinAnyMonitor(
@@ -77,9 +79,12 @@ async function init() {
     // Subscribe to theme colors and apply them
     themeColors.subscribe(applyTheme);
 
-    // F12 = randomize color theme
+    // F10 = randomize shader, F12 = randomize color theme
     document.addEventListener("keydown", async (e) => {
-      if (e.key === "F12") {
+      if (e.key === "F10") {
+        e.preventDefault();
+        randomizeShader();
+      } else if (e.key === "F12") {
         e.preventDefault();
         const { color1 } = randomizeTheme();
         const shape = await loadIconShape();
@@ -87,8 +92,36 @@ async function init() {
       }
     });
 
+    // Double-click on graphics page toggles fullscreen
+    document.addEventListener("dblclick", async () => {
+      if (get(currentPage) === "graphics") {
+        const isFullscreen = await win.isFullscreen();
+        await win.setFullscreen(!isFullscreen);
+      }
+    });
+
     // Start polling for connected clients
     startPolling();
+
+    // Restore last page and set up auto-switch logic
+    const lastPage = await loadLastPage();
+    if (lastPage === "clients") {
+      // User was explicitly on Clients last time — stay there, no auto-switch
+      currentPage.set("clients");
+    } else {
+      // Default flow: start on clients, auto-switch to graphics on first client connect
+      const unsubClients = clients.subscribe((list) => {
+        if (list.length > 0 && get(currentPage) === "clients") {
+          currentPage.set("graphics");
+          unsubClients();
+        }
+      });
+    }
+
+    // Persist page changes
+    currentPage.subscribe((page) => {
+      saveLastPage(page);
+    });
 
     // Start transport sync (beat position interpolation for shaders)
     startTransportSync();

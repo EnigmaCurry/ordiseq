@@ -40,6 +40,10 @@
   -webkit-user-select: none;
 }
 
+body.cursor-hidden, body.cursor-hidden * {
+  cursor: none !important;
+}
+
 input, textarea {
   user-select: text;
   -webkit-user-select: text;

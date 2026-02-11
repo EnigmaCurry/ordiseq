@@ -30,6 +30,7 @@ const ALWAYS_ON_TOP_KEY = "alwaysOnTop";
 const ICON_SHAPE_KEY = "iconShape";
 const LISTEN_PORT_KEY = "listenPort";
 const WINDOW_POSITION_KEY = "windowPosition";
+const LAST_PAGE_KEY = "lastPage";
 
 const defaultSettings: ShaderSettings = {
   selectedShader: "platonic",
@@ -166,6 +167,25 @@ export async function saveWindowPosition(pos: WindowPosition): Promise<void> {
     await s.save();
   } catch (e) {
     console.warn("Failed to save window position:", e);
+  }
+}
+
+export async function loadLastPage(): Promise<string | null> {
+  try {
+    const s = await getStore();
+    return (await s.get<string>(LAST_PAGE_KEY)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveLastPage(page: string): Promise<void> {
+  try {
+    const s = await getStore();
+    await s.set(LAST_PAGE_KEY, page);
+    await s.save();
+  } catch (e) {
+    console.warn("Failed to save last page:", e);
   }
 }
 

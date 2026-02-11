@@ -32,6 +32,11 @@
     return () => { if (idleTimer) clearTimeout(idleTimer); };
   });
 
+  // Hide cursor when idle on graphics page
+  $effect(() => {
+    document.body.classList.toggle("cursor-hidden", idle);
+  });
+
   function navigate(page: Page) {
     currentPage.set(page);
     menuOpen = false;

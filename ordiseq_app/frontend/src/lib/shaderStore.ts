@@ -288,6 +288,18 @@ export const colorThemes: Record<string, ColorTheme> = {
 export const selectedColorTheme = writable<string>("sunset");
 
 /**
+ * Pick a random shader and apply it. Returns the chosen shader key.
+ */
+export function randomizeShader(): string {
+  const keys = Object.keys(exampleShaders);
+  const key = keys[Math.floor(Math.random() * keys.length)];
+  selectedShaderName.set(key);
+  setShader(exampleShaders[key]);
+  persistSettings();
+  return key;
+}
+
+/**
  * Pick a random color theme and apply it. Returns the chosen theme key and color1 hex.
  */
 export function randomizeTheme(): { key: string; color1: string } {
