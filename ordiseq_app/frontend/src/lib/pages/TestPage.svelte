@@ -32,6 +32,8 @@
     root: number;
     chordType: string;
     bars: number;
+    customNotes?: number[];
+    customLabel?: string;
   }
 
   const BAR_WIDTH = 100;
@@ -51,6 +53,7 @@
     type: 'new' | 'reorder';
     root: number;
     chordType: string;
+    customNotes?: number[];
     sourceIndex: number; // -1 for new
     startX: number;
     startY: number;
@@ -59,6 +62,7 @@
 
   let drag: DragInfo | null = $state(null);
   let dragWasActive = false;
+  let pendingKeyToggle: number | null = null;
   let ghostX: number = $state(0);
   let ghostY: number = $state(0);
 
@@ -111,7 +115,8 @@
   }
 
   function startNewChordDrag(e: MouseEvent, root: number, chordType: string) {
-    drag = { type: 'new', root, chordType, sourceIndex: -1, startX: e.clientX, startY: e.clientY, active: false };
+    const cn = chordType === "Custom" ? [...activeNotes].sort((a, b) => a - b) : undefined;
+    drag = { type: 'new', root, chordType, customNotes: cn, sourceIndex: -1, startX: e.clientX, startY: e.clientY, active: false };
     window.addEventListener('mousemove', onDragMove);
     window.addEventListener('mouseup', onDragEnd);
   }
@@ -155,7 +160,12 @@
       const idx = calcDropIndex(e.clientX);
 
       if (drag.type === 'new') {
-        sequence = [...sequence.slice(0, idx), { id: genId(), root: drag.root, chordType: drag.chordType, bars: 1 }, ...sequence.slice(idx)];
+        const newChord: SequenceChord = { id: genId(), root: drag.root, chordType: drag.chordType, bars: 1 };
+        if (drag.customNotes) {
+          newChord.customNotes = drag.customNotes;
+          newChord.customLabel = chordNames[0] || undefined;
+        }
+        sequence = [...sequence.slice(0, idx), newChord, ...sequence.slice(idx)];
       } else if (drag.type === 'reorder' && drag.sourceIndex >= 0) {
         const chord = sequence[drag.sourceIndex];
         const filtered = sequence.filter((_, i) => i !== drag!.sourceIndex);
@@ -163,6 +173,11 @@
         sequence = [...filtered.slice(0, insertAt), chord, ...filtered.slice(insertAt)];
       }
     }
+
+    if (!drag?.active && pendingKeyToggle !== null) {
+      toggleKeyNote(pendingKeyToggle);
+    }
+    pendingKeyToggle = null;
 
     dragWasActive = drag?.active ?? false;
     drag = null;
@@ -174,6 +189,9 @@
     const chord = sequence[i];
     selectedRoot = chord.root;
     selectedChordType = chord.chordType;
+    if (chord.chordType === "Custom" && chord.customNotes) {
+      activeNotes = new Set(chord.customNotes);
+    }
   }
 
   onDestroy(() => {
@@ -224,6 +242,7 @@
   let activeNotes: Set<number> = $state(new Set());
 
   $effect(() => {
+    if (selectedChordType === "Custom") return;
     const rootMidi = octaveStart + selectedRoot;
     invoke<number[]>("get_chord_notes", { rootMidi, chordType: selectedChordType }).then((notes) => {
       activeNotes = new Set(notes);
@@ -246,6 +265,7 @@
 
   function triggerChord() {
     if (selectedClientId === null) return;
+    if (selectedChordType === "Custom") return;
     const rootMidi = octaveStart + selectedRoot;
     invoke<number[]>("trigger_live_chord", {
       clientId: selectedClientId,
@@ -254,6 +274,29 @@
     }).then((notes) => {
       activeNotes = new Set(notes);
     }).catch(() => {});
+  }
+
+  function handleKeyMouseDown(e: MouseEvent, midi: number) {
+    pendingKeyToggle = midi;
+    startNewChordDrag(e, selectedRoot, selectedChordType);
+  }
+
+  function toggleKeyNote(midi: number) {
+    stopSequenceIfPlaying();
+    const newNotes = new Set(activeNotes);
+    if (newNotes.has(midi)) {
+      newNotes.delete(midi);
+    } else {
+      newNotes.add(midi);
+    }
+    activeNotes = newNotes;
+    selectedChordType = "Custom";
+    if (selectedClientId !== null && newNotes.size > 0) {
+      const notes = [...newNotes].map(n => ({ note: n, channel: 0, velocity: 0.8 }));
+      invoke("send_live_notes", { clientId: selectedClientId, notes, durationBeats: 0.0 });
+    } else if (selectedClientId !== null) {
+      invoke("send_live_notes", { clientId: selectedClientId, notes: [], durationBeats: 0.0 });
+    }
   }
 
   function handleRootClick(i: number) {
@@ -322,6 +365,9 @@
       const chord = sequence[activeChordIndex];
       selectedRoot = chord.root;
       selectedChordType = chord.chordType;
+      if (chord.chordType === "Custom" && chord.customNotes) {
+        activeNotes = new Set(chord.customNotes);
+      }
     }
   });
 
@@ -345,8 +391,13 @@
     const notes: ClipNote[] = [];
     let beatPos = 0;
     for (const chord of sequence) {
-      const rootMidi = octaveStart + chord.root;
-      const chordNotes: number[] = await invoke("get_chord_notes", { rootMidi, chordType: chord.chordType });
+      let chordNotes: number[];
+      if (chord.chordType === "Custom" && chord.customNotes) {
+        chordNotes = chord.customNotes;
+      } else {
+        const rootMidi = octaveStart + chord.root;
+        chordNotes = await invoke("get_chord_notes", { rootMidi, chordType: chord.chordType });
+      }
       const fullBeats = chord.bars * 4;
       const durationBeats = fullBeats - 0.25;
       for (const n of chordNotes) {
@@ -406,7 +457,7 @@
             style="width: {chord.bars * BAR_WIDTH}px"
           >
             <button class="seq-remove" onclick={() => removeChord(i)}>×</button>
-            <div class="seq-chord-name">{NOTE_NAMES[chord.root]} {chord.chordType}</div>
+            <div class="seq-chord-name">{chord.chordType === "Custom" ? (chord.customLabel || "Custom") : `${NOTE_NAMES[chord.root]} ${chord.chordType}`}</div>
             <div class="seq-duration">
               <button class="dur-btn" onclick={() => adjustDuration(i, -0.5)} disabled={chord.bars <= 0.5}>-</button>
               <span class="dur-label">{chord.bars}</span>
@@ -471,6 +522,12 @@
           onmousedown={(e) => { handleChordTypeClick(ct); startNewChordDrag(e, selectedRoot, ct); }}
         >{ct}</button>
       {/each}
+      {#if selectedChordType === "Custom"}
+        <button
+          class="chord-btn active"
+          onmousedown={(e) => startNewChordDrag(e, selectedRoot, "Custom")}
+        >Custom</button>
+      {/if}
     </div>
 
     <div class="keyboard">
@@ -478,6 +535,7 @@
         <div
           class="key white"
           class:active={activeNotes.has(key.midi)}
+          onmousedown={(e) => handleKeyMouseDown(e, key.midi)}
         >
           <span class="label">{key.name}{key.octave}</span>
         </div>
@@ -488,6 +546,7 @@
           class="key black"
           class:active={activeNotes.has(key.midi)}
           style="left: {blackKeyLeft(key.midi)}%; width: {whiteW * 0.6}%"
+          onmousedown={(e) => handleKeyMouseDown(e, key.midi)}
         ></div>
       {/each}
     </div>
@@ -497,7 +556,7 @@
 <!-- Drag ghost floating element -->
 {#if drag?.active}
   <div class="drag-ghost" style="left: {ghostX}px; top: {ghostY}px">
-    {NOTE_NAMES[drag.root]} {drag.chordType}
+    {drag.chordType === "Custom" ? (chordNames[0] || "Custom") : `${NOTE_NAMES[drag.root]} ${drag.chordType}`}
   </div>
 {/if}
 
@@ -919,6 +978,7 @@
     margin: 0;
     font-size: 0.6rem;
     font-weight: 600;
+    cursor: pointer;
     transition: background-color 0.1s ease;
   }
 
