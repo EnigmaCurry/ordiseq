@@ -56,6 +56,9 @@
     { value: "retrogrid", label: "Retro Grid" },
     { value: "noise", label: "Noise" },
     { value: "matrix", label: "Matrix" },
+    { value: "synthwave", label: "Synthwave Sun" },
+    { value: "vhs", label: "VHS Glitch" },
+    { value: "tunnel", label: "Neon Tunnel" },
   ];
 
   let selectedShader = $state("plasma");

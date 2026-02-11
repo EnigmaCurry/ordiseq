@@ -3,6 +3,9 @@ import plasmaShader from "./shaders/plasma.frag.glsl?raw";
 import noiseShader from "./shaders/noise.frag.glsl?raw";
 import retrogridShader from "./shaders/retrogrid.frag.glsl?raw";
 import matrixShader from "./shaders/matrix.frag.glsl?raw";
+import synthwaveShader from "./shaders/synthwave.frag.glsl?raw";
+import vhsShader from "./shaders/vhs.frag.glsl?raw";
+import tunnelShader from "./shaders/tunnel.frag.glsl?raw";
 import { loadShaderSettings, saveShaderSettings, type ShaderSettings } from "./settingsStore";
 
 export interface ShaderConfig {
@@ -23,6 +26,9 @@ export const exampleShaders: Record<string, string> = {
   noise: noiseShader,
   retrogrid: retrogridShader,
   matrix: matrixShader,
+  synthwave: synthwaveShader,
+  vhs: vhsShader,
+  tunnel: tunnelShader,
 };
 
 const defaultConfig: ShaderConfig = {
