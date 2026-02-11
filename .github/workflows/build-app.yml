@@ -2,7 +2,7 @@ name: Build ordiseq_app
 
 on:
   push:
-    branches: [dev, master]
+    branches: [master]
     paths:
       - 'ordiseq_app/**'
       - 'ordiseq/**'
