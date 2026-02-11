@@ -367,6 +367,7 @@
   {:else}
     <div class="client-list">
       {#each $clients as client (client.id)}
+        {@const seqType = sequencerTypes[client.id] ?? "none"}
         <div class="client-card" onwheel={(e) => e.preventDefault()}>
           <div class="client-header">
             {#if editingId === client.id}
@@ -413,7 +414,7 @@
               <div class="seq-select-wrapper">
                 <select
                   class="seq-select"
-                  value={getSequencerType(client.id)}
+                  value={seqType}
                   onchange={(e) => setSequencerType(client.id, (e.target as HTMLSelectElement).value as SequencerType)}
                 >
                   <option value="none">None</option>
@@ -444,7 +445,7 @@
               {/if}
             </div>
 
-            {#if getSequencerType(client.id) === "euclidean"}
+            {#if seqType === "euclidean"}
               <div class="euclid-panel">
                 <div class="euclid-header-row">
                   <span class="euclid-col note-col">Note</span>
@@ -522,7 +523,7 @@
               </div>
             {/if}
 
-            {#if getSequencerType(client.id) === "chords"}
+            {#if seqType === "chords"}
               <ChordPanel
                 sequence={chordSequences[client.id] ?? []}
                 octaveStart={octaveStarts[client.id] ?? 48}

@@ -112,6 +112,15 @@
   function cleanupDragListeners() {
     window.removeEventListener('mousemove', onDragMove);
     window.removeEventListener('mouseup', onDragEnd);
+    window.removeEventListener('blur', abortDrag);
+    window.removeEventListener('pointercancel', abortDrag);
+  }
+
+  function abortDrag() {
+    cleanupDragListeners();
+    pendingKeyToggle = null;
+    drag = null;
+    dropTargetIndex = -1;
   }
 
   function cancelDrag() {
@@ -125,21 +134,28 @@
     dropTargetIndex = -1;
   }
 
+  function addDragListeners() {
+    window.addEventListener('mousemove', onDragMove);
+    window.addEventListener('mouseup', onDragEnd);
+    window.addEventListener('blur', abortDrag);
+    window.addEventListener('pointercancel', abortDrag);
+  }
+
   function startNewChordDrag(e: MouseEvent, root: number, chordType: string) {
+    if (e.button !== 0) return;
     cleanupDragListeners();
     const cn = chordType === "Custom" ? [...activeNotes].sort((a, b) => a - b) : undefined;
     drag = { type: 'new', root, chordType, customNotes: cn, sourceIndex: -1, startX: e.clientX, startY: e.clientY, active: false };
-    window.addEventListener('mousemove', onDragMove);
-    window.addEventListener('mouseup', onDragEnd);
+    addDragListeners();
   }
 
   function startReorderDrag(e: MouseEvent, i: number) {
+    if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest('button')) return;
     cleanupDragListeners();
     const chord = sequence[i];
     drag = { type: 'reorder', root: chord.root, chordType: chord.chordType, sourceIndex: i, startX: e.clientX, startY: e.clientY, active: false };
-    window.addEventListener('mousemove', onDragMove);
-    window.addEventListener('mouseup', onDragEnd);
+    addDragListeners();
   }
 
   function onDragMove(e: MouseEvent) {
