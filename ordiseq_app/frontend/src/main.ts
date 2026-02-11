@@ -7,7 +7,7 @@ import { initializeSettings, randomizeTheme, randomizeShader } from "./lib/shade
 import { loadAlwaysOnTop, loadIconShape, loadShaderSettings, loadWindowPosition, saveWindowPosition, loadLastPage, saveLastPage } from "./lib/settingsStore";
 import type { WindowPosition } from "./lib/settingsStore";
 import { applyIcon } from "./lib/iconGenerator";
-import { getCurrentWindow, availableMonitors, PhysicalPosition } from "@tauri-apps/api/window";
+import { getCurrentWindow, availableMonitors, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
 import type { Monitor } from "@tauri-apps/api/window";
 import { startPolling, clients } from "./lib/clientsStore";
 import { currentPage } from "./lib/router";
@@ -31,6 +31,7 @@ function isWindowWithinAnyMonitor(
 async function init() {
   const win = getCurrentWindow();
   let alwaysOnTop = false;
+  let savedPos: WindowPosition | null = null;
   try {
     // Load persisted settings first
     await initializeSettings();
@@ -46,13 +47,20 @@ async function init() {
     const shaderSettings = await loadShaderSettings();
     await applyIcon(iconShape, shaderSettings.uniforms.color1);
 
-    // Restore window position if saved and still within a monitor
-    const savedPos = await loadWindowPosition();
-    if (savedPos) {
+    // Restore window position before show (setSize before show breaks WebView).
+    // Only restore if the full window fits entirely within a single monitor.
+    savedPos = await loadWindowPosition();
+    if (savedPos && savedPos.width && savedPos.height) {
       const monitors = await availableMonitors();
-      const size = await win.outerSize();
-      if (isWindowWithinAnyMonitor(savedPos.x, savedPos.y, size.width, size.height, monitors)) {
+      // Estimate outer size by adding current decoration (title bar + borders) to saved inner size
+      const curOuter = await win.outerSize();
+      const curInner = await win.innerSize();
+      const outerW = savedPos.width + (curOuter.width - curInner.width);
+      const outerH = savedPos.height + (curOuter.height - curInner.height);
+      if (isWindowWithinAnyMonitor(savedPos.x, savedPos.y, outerW, outerH, monitors)) {
         await win.setPosition(new PhysicalPosition(savedPos.x, savedPos.y));
+      } else {
+        savedPos = null;
       }
     }
 
@@ -126,15 +134,23 @@ async function init() {
     // Start transport sync (beat position interpolation for shaders)
     startTransportSync();
 
-    // Save window position on close (only if within screen bounds)
+    // Save window position on close (only if windowed and within screen bounds)
     win.onCloseRequested(async (event) => {
       event.preventDefault();
       try {
+        const fullscreen = await win.isFullscreen();
+        if (fullscreen) { win.destroy(); return; }
         const pos = await win.outerPosition();
-        const size = await win.outerSize();
+        const outerSize = await win.outerSize();
+        const innerSize = await win.innerSize();
         const monitors = await availableMonitors();
-        if (isWindowWithinAnyMonitor(pos.x, pos.y, size.width, size.height, monitors)) {
-          await saveWindowPosition({ x: pos.x, y: pos.y });
+        if (isWindowWithinAnyMonitor(pos.x, pos.y, outerSize.width, outerSize.height, monitors)) {
+          await saveWindowPosition({
+            x: pos.x,
+            y: pos.y,
+            width: innerSize.width,
+            height: innerSize.height,
+          });
         }
       } catch (e) {
         console.warn("Failed to save window position on close:", e);
@@ -144,6 +160,10 @@ async function init() {
   } finally {
     // Always show window, even if init errors
     await win.show();
+    // Restore window size after show (setSize before show breaks WebView)
+    if (savedPos && savedPos.width && savedPos.height) {
+      await win.setSize(new PhysicalSize(savedPos.width, savedPos.height));
+    }
     if (alwaysOnTop) {
       await win.setFocus();
     }

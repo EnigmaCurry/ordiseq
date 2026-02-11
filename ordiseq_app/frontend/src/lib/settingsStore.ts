@@ -22,6 +22,8 @@ import type { IconShape } from "./iconGenerator";
 export interface WindowPosition {
   x: number;
   y: number;
+  width: number;
+  height: number;
 }
 
 const STORE_FILE = "settings.json";
