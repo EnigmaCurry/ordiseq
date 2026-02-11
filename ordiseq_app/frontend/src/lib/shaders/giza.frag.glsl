@@ -170,6 +170,15 @@ void main() {
   float goldenHour = smoothstep(0.0, 0.4, arcLight) * smoothstep(0.85, 0.4, arcLight);
   float nightAmount = 1.0 - daylight;
 
+  // --- Weather system ---
+  // Each day cycle gets deterministic weather based on cycle index
+  // ~33% clear, ~33% lightning storm, ~33% dust storm
+  float cycleIdx = floor(rawTime / cyclePeriod);
+  float weatherSeed = hash(vec2(cycleIdx, 42.17));
+  float isLightning = step(0.33, weatherSeed) * (1.0 - step(0.66, weatherSeed));
+  float isDustStorm = step(0.66, weatherSeed);
+  float weatherStr = smoothstep(0.0, 0.3, daylight);
+
   // --- Sky ---
   vec3 col = vec3(0.0);
 
@@ -204,6 +213,11 @@ void main() {
 
     col = sky;
 
+    // Dust storm: tint sky with sandy haze
+    col = mix(col, mix(u_color1, u_color2, 0.3) * 0.35, isDustStorm * weatherStr * 0.45 * (1.0 - skyT * 0.4));
+    // Lightning storm: darken sky (overcast)
+    col *= 1.0 - isLightning * weatherStr * 0.3;
+
     // Soft diffuse clouds
     vec2 cloudUV = vec2(uv.x * aspect * 1.5 + t * 0.08, skyT * 2.0 + t * 0.02);
     float cloud1 = fbm(cloudUV * 2.0 + vec2(0.0, 7.3));
@@ -218,6 +232,9 @@ void main() {
     vec3 cloudLit = mix(cloudLitSunset, cloudLitDay, daylight * (1.0 - goldenHour));
     vec3 cloudDark = u_color4 * 0.1;
     float cloudVis = max(goldenHour, daylight * 0.5);
+    // Lightning weather: thick storm clouds
+    cloudAlpha *= 1.0 + isLightning * weatherStr * 2.5;
+    cloudVis = max(cloudVis, isLightning * weatherStr);
     col = mix(col, mix(cloudDark, cloudLit, cloud1), cloudAlpha * 0.35 * cloudVis);
 
     // Horizon haze glow
@@ -257,7 +274,9 @@ void main() {
       float gapLen = 16.0 + colSeed * 24.0;
       float period = streamLen + gapLen;
 
-      float cyclePos = mod(cell.y - syncTime * speed + phase, period);
+      // Day: rain flows down (+1), Night: rain flows up (-1)
+      float rainDir = mix(-1.0, 1.0, daylight);
+      float cyclePos = mod(cell.y + rainDir * syncTime * speed + phase, period);
 
       if (cyclePos < streamLen) {
         float dist = cyclePos;
@@ -397,6 +416,11 @@ void main() {
 
     float dustAlpha2 = dust2 * vertFade2 * 0.22;
 
+    // Dust storm: massive boost to dust layers
+    float dustBoost = 1.0 + isDustStorm * weatherStr * 4.0;
+    dustAlpha1 *= dustBoost;
+    dustAlpha2 *= dustBoost;
+
     // Both layers always glow — stronger at night
     float glowStr = mix(0.7, 1.0, max(nightAmount * 0.6, max(daylight, goldenHour * 0.8)));
 
@@ -413,15 +437,73 @@ void main() {
   float dustBand = exp(-pow(abs(uv.y - horizon) / 0.12, 2.0)) * dustPulse;
   float dustBandNoise = fbm(vec2(uv.x * aspect * 3.0 - rawTime * 0.1, rawTime * 0.05 + 7.0));
   dustBand *= 0.6 + 0.4 * dustBandNoise;
+  dustBand *= 1.0 + isDustStorm * weatherStr * 2.5;
   vec3 dustGlowDay = mix(u_color1, u_color2, 0.3) * 0.2;
   vec3 dustGlowNight = mix(u_color1, u_color2, 0.5) * 0.15;
   col += mix(dustGlowNight, dustGlowDay, daylight) * dustBand;
 
   // --- Atmospheric haze near horizon ---
   float hazeStrength = smoothstep(0.18, 0.0, abs(uv.y - horizon));
+  hazeStrength *= 1.0 + isDustStorm * weatherStr * 3.0;
   vec3 hazeColDay = mix(u_color1, u_color2, 0.3) * 0.18;
   vec3 hazeColNight = mix(u_color1, u_color2, 0.5) * 0.10;
   col += mix(hazeColNight, hazeColDay, daylight) * hazeStrength;
+
+  // --- Lightning strikes ---
+  if (isLightning > 0.5 && weatherStr > 0.05) {
+    float strikeWindow = 3.0;
+    float strikeIdx = floor(rawTime / strikeWindow);
+    float strikeSeed = hash(vec2(strikeIdx, cycleIdx * 7.3));
+    float strikeT = fract(rawTime / strikeWindow) * strikeWindow;
+
+    // 45% chance of strike per window during daytime
+    float hasStrike = step(0.55, strikeSeed) * weatherStr;
+
+    // Flash illuminates everything
+    float flash = hasStrike * exp(-strikeT * 10.0);
+    col += flash * mix(u_color3, vec3(1.0), 0.6) * 0.5;
+
+    // Bolt rendering in sky
+    if (hasStrike > 0.5 && strikeT < 0.5 && uv.y > horizon) {
+      float boltStartX = 0.15 + hash(vec2(strikeIdx * 3.1, cycleIdx)) * 0.7;
+      float boltCurX = boltStartX;
+      float boltD = 1e10;
+      vec2 prev = vec2(boltCurX, 0.95);
+
+      for (int seg = 0; seg < 12; seg++) {
+        float fi = float(seg);
+        float segSeed = hash(vec2(fi + strikeIdx * 13.0, strikeSeed * 91.0 + cycleIdx));
+        boltCurX += (segSeed - 0.5) * 0.05;
+        float ny = 0.95 - (fi + 1.0) / 12.0 * (0.95 - horizon);
+        vec2 next = vec2(boltCurX, ny);
+
+        // Aspect-corrected distance to line segment
+        vec2 uvA = vec2(uv.x * aspect, uv.y);
+        vec2 prevA = vec2(prev.x * aspect, prev.y);
+        vec2 nextA = vec2(next.x * aspect, next.y);
+        vec2 pa = uvA - prevA;
+        vec2 ba = nextA - prevA;
+        float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+        float segD = length(pa - ba * h);
+        boltD = min(boltD, segD);
+
+        prev = next;
+      }
+
+      // Bright core + wider glow
+      float boltCore = exp(-boltD * boltD * 50000.0) * exp(-strikeT * 8.0);
+      float boltGlow = exp(-boltD * boltD * 4000.0) * exp(-strikeT * 5.0);
+      col += boltCore * vec3(1.0) * 0.9;
+      col += boltGlow * mix(u_color1, u_color3, 0.5) * 0.4;
+    }
+  }
+
+  // --- Dust storm full-screen haze ---
+  if (isDustStorm > 0.5 && weatherStr > 0.05) {
+    vec3 stormHaze = mix(u_color1, u_color2, 0.2) * 0.3;
+    float stormNoise = fbm(vec2(uv.x * aspect * 1.5 - rawTime * 0.15, uv.y * 2.0 + rawTime * 0.05));
+    col = mix(col, stormHaze, isDustStorm * weatherStr * 0.3 * (0.5 + 0.5 * stormNoise));
+  }
 
   // --- Scanlines ---
   float scanline = 0.93 + 0.07 * sin(gl_FragCoord.y * 3.0);

@@ -60,7 +60,7 @@
     { value: "vhs", label: "VHS Glitch" },
     { value: "tunnel", label: "Neon Tunnel" },
     { value: "platonic", label: "Platonic" },
-    { value: "giza", label: "Giza Sunset" },
+    { value: "giza", label: "Giza" },
   ];
 
   let selectedShader = $state("plasma");
