@@ -90,10 +90,6 @@ struct OrdiseqPlugParams {
     /// Fill amount: probability of generating fill notes at empty steps.
     #[id = "fill"]
     fill: FloatParam,
-
-    /// Hidden param used only to poke the host into re-saving when persist state changes.
-    #[id = "dummy"]
-    dummy: FloatParam,
 }
 
 impl Default for OrdiseqPlugParams {
@@ -106,8 +102,6 @@ impl Default for OrdiseqPlugParams {
                 .with_unit("%")
                 .with_value_to_string(formatters::v2s_f32_percentage(0))
                 .with_string_to_value(formatters::s2v_f32_percentage()),
-            dummy: FloatParam::new("_dummy", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 })
-                .hide(),
         }
     }
 }
@@ -503,10 +497,10 @@ impl Plugin for OrdiseqPlug {
 
                 // Notify host that persist state changed so the DAW re-saves
                 if needs_host_notify.swap(false, Ordering::Relaxed) {
-                    let v = params.dummy.value();
-                    setter.begin_set_parameter(&params.dummy);
-                    setter.set_parameter(&params.dummy, v);
-                    setter.end_set_parameter(&params.dummy);
+                    let v = params.program.value();
+                    setter.begin_set_parameter(&params.program);
+                    setter.set_parameter(&params.program, v);
+                    setter.end_set_parameter(&params.program);
                 }
 
                 egui::CentralPanel::default().show(egui_ctx, |ui| {
