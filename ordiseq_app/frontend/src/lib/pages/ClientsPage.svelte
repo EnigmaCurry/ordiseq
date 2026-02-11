@@ -4,18 +4,22 @@
     renameClient,
     sendClipToClient,
     sendPlayModeToClient,
-    euclideanToClip,
+    euclideanMetaToClip,
     chordsToClip,
-    defaultEuclidRow,
+    defaultEuclidRowMeta,
     midiNoteName,
-    bjorklund,
+    computeStepPattern,
+    parseMetaSequence,
+    STEP_BEATS,
     loadConfigForClient,
     saveConfigForClient,
     renameStoredConfig,
+    storedToRowMetas,
     type ClientInfo,
     type SequencerType,
     type SequenceChord,
     type EuclidRow,
+    type EuclidRowMeta,
     type StepState,
   } from "../clientsStore";
   import { get } from "svelte/store";
@@ -31,7 +35,7 @@
 
   // Per-client sequencer state, keyed by client id
   let sequencerTypes = $state<Record<number, SequencerType>>({});
-  let euclideanRows = $state<Record<number, EuclidRow[]>>({});
+  let euclideanRowMetas = $state<Record<number, EuclidRowMeta[]>>({});
   let chordSequences = $state<Record<number, SequenceChord[]>>({});
   let octaveStarts = $state<Record<number, number>>({});
   let midiInfos = $state<Record<number, MidiInfo>>({});
@@ -93,7 +97,7 @@
         const stored = loadConfigForClient(client.name, pgm);
         if (stored) {
           sequencerTypes[client.id] = stored.type;
-          euclideanRows[client.id] = stored.rows;
+          euclideanRowMetas[client.id] = storedToRowMetas(stored.rows);
           chordSequences[client.id] = fixChordIds(stored.chordSequence ?? []);
           octaveStarts[client.id] = stored.octaveStart ?? 48;
           playModes[client.id] = stored.noteTrigger ? "note_trigger" : "transport";
@@ -155,7 +159,7 @@
     const stored = name ? loadConfigForClient(name, pgm) : null;
     if (stored) {
       sequencerTypes[clientId] = stored.type;
-      euclideanRows[clientId] = stored.rows;
+      euclideanRowMetas[clientId] = storedToRowMetas(stored.rows);
       chordSequences[clientId] = fixChordIds(stored.chordSequence ?? []);
       octaveStarts[clientId] = stored.octaveStart ?? 48;
       playModes[clientId] = stored.noteTrigger ? "note_trigger" : "transport";
@@ -167,7 +171,7 @@
       }
     } else {
       sequencerTypes[clientId] = "none";
-      euclideanRows[clientId] = [];
+      euclideanRowMetas[clientId] = [];
       chordSequences[clientId] = [];
       octaveStarts[clientId] = 48;
       playModes[clientId] = "transport";
@@ -182,8 +186,8 @@
 
   function setSequencerType(clientId: number, type: SequencerType) {
     sequencerTypes[clientId] = type;
-    if (type === "euclidean" && (!euclideanRows[clientId] || euclideanRows[clientId].length === 0)) {
-      euclideanRows[clientId] = [defaultEuclidRow()];
+    if (type === "euclidean" && (!euclideanRowMetas[clientId] || euclideanRowMetas[clientId].length === 0)) {
+      euclideanRowMetas[clientId] = [defaultEuclidRowMeta()];
     }
     if (type === "chords" && !chordSequences[clientId]) {
       chordSequences[clientId] = [];
@@ -200,28 +204,35 @@
     }
   }
 
-  function getRows(clientId: number): EuclidRow[] {
-    return euclideanRows[clientId] ?? [];
+  function getRowMetas(clientId: number): EuclidRowMeta[] {
+    return euclideanRowMetas[clientId] ?? [];
+  }
+
+  /** Get the active slot's EuclidRow for a row meta. */
+  function activeRow(meta: EuclidRowMeta): EuclidRow {
+    return meta.slots[meta.activeSlot] ?? meta.slots["A"];
   }
 
   function addRow(clientId: number) {
-    const rows = euclideanRows[clientId] ?? [];
-    const lastNote = rows.length > 0 ? rows[rows.length - 1].note : 35;
-    euclideanRows[clientId] = [...rows, defaultEuclidRow(lastNote + 1)];
+    const metas = euclideanRowMetas[clientId] ?? [];
+    const lastNote = metas.length > 0 ? activeRow(metas[metas.length - 1]).note : 35;
+    euclideanRowMetas[clientId] = [...metas, defaultEuclidRowMeta(lastNote + 1)];
     syncToClient(clientId);
   }
 
   function removeRow(clientId: number, index: number) {
-    const rows = euclideanRows[clientId] ?? [];
-    if (rows.length <= 1) return;
-    euclideanRows[clientId] = rows.filter((_, i) => i !== index);
+    const metas = euclideanRowMetas[clientId] ?? [];
+    if (metas.length <= 1) return;
+    euclideanRowMetas[clientId] = metas.filter((_, i) => i !== index);
     syncToClient(clientId);
   }
 
   function updateRow(clientId: number, index: number, field: keyof EuclidRow, value: number) {
-    const rows = euclideanRows[clientId];
-    if (!rows) return;
-    const row = { ...rows[index] };
+    const metas = euclideanRowMetas[clientId];
+    if (!metas) return;
+    const meta = metas[index];
+    const slot = meta.activeSlot;
+    const row = { ...meta.slots[slot] };
 
     if (field === "note") {
       row.note = Math.max(0, Math.min(127, value));
@@ -243,9 +254,26 @@
       row.accentVelocity = Math.max(0, Math.min(127, value));
     }
 
-    const newRows = [...rows];
-    newRows[index] = row;
-    euclideanRows[clientId] = newRows;
+    const newMetas = [...metas];
+    newMetas[index] = { ...meta, slots: { ...meta.slots, [slot]: row } };
+    euclideanRowMetas[clientId] = newMetas;
+    debouncedSync(clientId);
+  }
+
+  function setActiveSlot(clientId: number, rowIndex: number, letter: string) {
+    const metas = euclideanRowMetas[clientId];
+    if (!metas) return;
+    const newMetas = [...metas];
+    newMetas[rowIndex] = { ...newMetas[rowIndex], activeSlot: letter };
+    euclideanRowMetas[clientId] = newMetas;
+  }
+
+  function updateMetaSequence(clientId: number, rowIndex: number, text: string) {
+    const metas = euclideanRowMetas[clientId];
+    if (!metas) return;
+    const newMetas = [...metas];
+    newMetas[rowIndex] = { ...newMetas[rowIndex], metaSequence: text };
+    euclideanRowMetas[clientId] = newMetas;
     debouncedSync(clientId);
   }
 
@@ -264,21 +292,21 @@
       const pgm = getEditProgram(clientId);
       const noteTrigger = (playModes[clientId] ?? "transport") === "note_trigger";
       saveConfigForClient(
-        name, sequencerTypes[clientId] ?? "none", euclideanRows[clientId] ?? [], pgm, noteTrigger,
+        name, sequencerTypes[clientId] ?? "none", euclideanRowMetas[clientId] ?? [], pgm, noteTrigger,
         chordSequences[clientId], octaveStarts[clientId],
       );
     }
   }
 
   async function syncToClient(clientId: number) {
-    const rows = euclideanRows[clientId];
-    if (!rows || rows.length === 0) return;
+    const metas = euclideanRowMetas[clientId];
+    if (!metas || metas.length === 0) return;
     const pgm = getEditProgram(clientId) - 1; // capture before any await
     persistConfig(clientId);
     try {
-      const clip = euclideanToClip(rows);
+      const clip = euclideanMetaToClip(metas);
       await sendClipToClient(clientId, clip, pgm);
-      const result = await invoke<MidiInfo>("clip_to_midi_file", { clip, repeats: 2 });
+      const result = await invoke<MidiInfo>("clip_to_midi_file", { clip, repeats: 1 });
       midiInfos[clientId] = result;
     } catch (e) {
       console.error("Failed to sync clip:", e);
@@ -344,36 +372,8 @@
     sendPlayModeToClient(clientId, pgm, mode === "note_trigger");
   }
 
-  /** Current step index for a row given the beat position (16th note resolution). */
-  function getCurrentStep(row: EuclidRow, beat: number): number {
-    return Math.floor((beat / 0.25) % row.length);
-  }
-
   function isManualMode(row: EuclidRow): boolean {
     return row.manualPattern != null;
-  }
-
-  /** Returns per-step info: "off" | "hit" | "accent".
-   *  Uses manualPattern if present, otherwise computes via Bjorklund. */
-  function getPattern(row: EuclidRow): StepState[] {
-    if (row.manualPattern) return row.manualPattern;
-
-    const hitPat = bjorklund(row.length, row.hits);
-    const accentPat = row.accents > 0 ? bjorklund(row.hits, row.accents) : [];
-    const combined: StepState[] = [];
-    let hitIndex = 0;
-    for (let s = 0; s < hitPat.length; s++) {
-      if (!hitPat[s]) {
-        combined.push("off");
-      } else {
-        const isAccent = accentPat.length > 0 && accentPat[hitIndex % accentPat.length];
-        combined.push(isAccent ? "accent" : "hit");
-        hitIndex++;
-      }
-    }
-    if (row.rotation === 0 || combined.length === 0) return combined;
-    const r = ((row.rotation % combined.length) + combined.length) % combined.length;
-    return [...combined.slice(r), ...combined.slice(0, r)];
   }
 
   function cycleStep(state: StepState): StepState {
@@ -383,34 +383,95 @@
   }
 
   function toggleStep(clientId: number, rowIndex: number, stepIdx: number) {
-    const rows = euclideanRows[clientId];
-    if (!rows) return;
-    const row = { ...rows[rowIndex] };
+    const metas = euclideanRowMetas[clientId];
+    if (!metas) return;
+    const meta = metas[rowIndex];
+    const slot = meta.activeSlot;
+    const row = { ...meta.slots[slot] };
 
     if (!row.manualPattern) {
-      // Enter manual mode: snapshot current euclidean pattern
-      row.manualPattern = [...getPattern(row)];
+      row.manualPattern = [...computeStepPattern(row)];
     }
 
     row.manualPattern = [...row.manualPattern];
     row.manualPattern[stepIdx] = cycleStep(row.manualPattern[stepIdx]);
 
-    const newRows = [...rows];
-    newRows[rowIndex] = row;
-    euclideanRows[clientId] = newRows;
+    const newMetas = [...metas];
+    newMetas[rowIndex] = { ...meta, slots: { ...meta.slots, [slot]: row } };
+    euclideanRowMetas[clientId] = newMetas;
     debouncedSync(clientId);
   }
 
   function resetToEuclidean(clientId: number, rowIndex: number) {
     if (!confirm("Reset to Euclidean mode? Your manual edits will be lost.")) return;
-    const rows = euclideanRows[clientId];
-    if (!rows) return;
-    const row = { ...rows[rowIndex] };
+    const metas = euclideanRowMetas[clientId];
+    if (!metas) return;
+    const meta = metas[rowIndex];
+    const slot = meta.activeSlot;
+    const row = { ...meta.slots[slot] };
     delete row.manualPattern;
-    const newRows = [...rows];
-    newRows[rowIndex] = row;
-    euclideanRows[clientId] = newRows;
+    const newMetas = [...metas];
+    newMetas[rowIndex] = { ...meta, slots: { ...meta.slots, [slot]: row } };
+    euclideanRowMetas[clientId] = newMetas;
     debouncedSync(clientId);
+  }
+
+  // --- Meta-sequencer playback position ---
+
+  const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+  /** Determine which slot letter is currently playing for a row, given beat position. */
+  function getPlayingSlot(meta: EuclidRowMeta, beat: number): string | null {
+    const letters = parseMetaSequence(meta.metaSequence);
+    if (!letters || letters.length === 0) return null;
+
+    let totalSteps = 0;
+    const segments: { letter: string; startStep: number; length: number }[] = [];
+    for (const letter of letters) {
+      const row = meta.slots[letter] ?? meta.slots["A"];
+      segments.push({ letter, startStep: totalSteps, length: row.length });
+      totalSteps += row.length;
+    }
+
+    if (totalSteps === 0) return null;
+
+    const globalStep = Math.floor(beat / STEP_BEATS);
+    const cycleStep = ((globalStep % totalSteps) + totalSteps) % totalSteps;
+
+    for (const seg of segments) {
+      if (cycleStep >= seg.startStep && cycleStep < seg.startStep + seg.length) {
+        return seg.letter;
+      }
+    }
+    return letters[0];
+  }
+
+  /** Current step index within the active slot, or -1 if a different slot is playing. */
+  function getCurrentMetaStep(meta: EuclidRowMeta, beat: number): number {
+    const letters = parseMetaSequence(meta.metaSequence) ?? ["A"];
+
+    let totalSteps = 0;
+    const segments: { letter: string; startStep: number; length: number }[] = [];
+    for (const letter of letters) {
+      const row = meta.slots[letter] ?? meta.slots["A"];
+      segments.push({ letter, startStep: totalSteps, length: row.length });
+      totalSteps += row.length;
+    }
+
+    if (totalSteps === 0) return -1;
+
+    const globalStep = Math.floor(beat / STEP_BEATS);
+    const cycleStepPos = ((globalStep % totalSteps) + totalSteps) % totalSteps;
+
+    for (const seg of segments) {
+      if (cycleStepPos >= seg.startStep && cycleStepPos < seg.startStep + seg.length) {
+        if (seg.letter === meta.activeSlot) {
+          return cycleStepPos - seg.startStep;
+        }
+        return -1;
+      }
+    }
+    return -1;
   }
 </script>
 
@@ -504,7 +565,7 @@
                     onstop={seqType === "chords" ? () => stopSequenceForClient(client.id) : undefined}
                   />
                   <span class="seq-select-spacer"></span>
-                  <span class="midi-drag-label">{seqType === "chords" ? "Drag clip to export" : "Drag to export 2x loop"}</span>
+                  <span class="midi-drag-label">{seqType === "chords" ? "Drag clip to export" : "Drag to export"}</span>
                 </div>
               {/if}
             </div>
@@ -522,8 +583,12 @@
                   <span class="euclid-col btn-col"></span>
                 </div>
 
-                {#each getRows(client.id) as row, i}
+                {#each getRowMetas(client.id) as rowMeta, i}
+                  {@const row = activeRow(rowMeta)}
                   {@const manual = isManualMode(row)}
+                  {@const pattern = computeStepPattern(row)}
+                  {@const currentStep = $transportPlaying ? getCurrentMetaStep(rowMeta, $beatPosition) : -1}
+                  {@const playingSlot = $transportPlaying ? getPlayingSlot(rowMeta, $beatPosition) : null}
                   <div class="euclid-row">
                     <span class="euclid-col note-col dial-col">
                       <Dial value={row.note} min={0} max={127}
@@ -563,24 +628,48 @@
                         onchange={(v) => updateRow(client.id, i, "rotation", v)} />
                     </span>
                     <span class="euclid-col btn-col">
-                      {#if getRows(client.id).length > 1}
+                      {#if getRowMetas(client.id).length > 1}
                         <button class="remove-btn" onclick={() => removeRow(client.id, i)}>×</button>
                       {/if}
                     </span>
                   </div>
                   <!-- svelte-ignore a11y_no_static_element_interactions -->
-                  <div class="pattern-row" class:single-step={getPattern(row).length === 1} class:manual-mode={manual}>
-                    {#each getPattern(row) as step, stepIdx}
+                  <div class="pattern-row" class:single-step={pattern.length === 1} class:manual-mode={manual}>
+                    {#each pattern as step, stepIdx}
                       <!-- svelte-ignore a11y_click_events_have_key_events -->
                       <!-- svelte-ignore a11y_no_static_element_interactions -->
-                      <span class="step-dot clickable" class:active={step !== "off"} class:accent={step === "accent"} class:current={$transportPlaying && stepIdx === getCurrentStep(row, $beatPosition)}
+                      <span class="step-dot clickable" class:active={step !== "off"} class:accent={step === "accent"} class:current={currentStep === stepIdx}
                         onclick={() => toggleStep(client.id, i, stepIdx)}></span>
                     {/each}
+                  </div>
+                  <!-- Meta-sequencer: slot selector + sequence input -->
+                  <div class="meta-row">
+                    <div class="slot-selector">
+                      {#each ALPHABET as letter}
+                        {@const isEditing = rowMeta.activeSlot === letter}
+                        {@const isPlaying = playingSlot === letter}
+                        <!-- svelte-ignore a11y_click_events_have_key_events -->
+                        <!-- svelte-ignore a11y_no_static_element_interactions -->
+                        <span class="slot-btn" class:editing={isEditing} class:playing={isPlaying && !isEditing} class:editing-playing={isEditing && isPlaying}
+                          onclick={() => setActiveSlot(client.id, i, letter)}>{letter}</span>
+                      {/each}
+                    </div>
+                    <div class="meta-seq-row">
+                      <span class="meta-seq-label">Sequence</span>
+                      <input
+                        type="text"
+                        class="meta-input"
+                        class:invalid={parseMetaSequence(rowMeta.metaSequence) === null}
+                        value={rowMeta.metaSequence}
+                        oninput={(e) => updateMetaSequence(client.id, i, (e.target as HTMLInputElement).value)}
+                        placeholder="AAAA"
+                      />
+                    </div>
                   </div>
                 {/each}
 
                 <button class="add-row-btn" onclick={() => addRow(client.id)}
-                  disabled={getRows(client.id).length >= 12}>
+                  disabled={getRowMetas(client.id).length >= 12}>
                   + Add Row
                 </button>
 
@@ -931,6 +1020,99 @@
     color: #888;
     text-transform: uppercase;
     letter-spacing: 0.04em;
+  }
+
+  /* Meta-sequencer row */
+  .meta-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.2rem 0 0.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    margin-bottom: 0.2rem;
+  }
+
+  .slot-selector {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0px;
+  }
+
+  .slot-btn {
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    font-size: 0.5rem;
+    font-family: monospace;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    color: #666;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
+
+  .slot-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #aaa;
+  }
+
+  .slot-btn.editing {
+    background: rgba(var(--color-2), 0.3);
+    border-color: rgb(var(--color-2));
+    color: rgb(var(--color-2));
+  }
+
+  .slot-btn.playing {
+    background: rgba(80, 200, 80, 0.3);
+    border-color: rgb(80, 200, 80);
+    color: rgb(80, 200, 80);
+  }
+
+  .slot-btn.editing-playing {
+    background: rgba(var(--color-2), 0.3);
+    border-color: rgb(80, 200, 80);
+    color: rgb(var(--color-2));
+    box-shadow: 0 0 4px rgba(80, 200, 80, 0.5);
+  }
+
+  .meta-seq-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .meta-seq-label {
+    font-size: 0.6rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+  }
+
+  .meta-input {
+    width: 160px;
+    height: 22px;
+    font-size: 0.75rem;
+    font-family: monospace;
+    text-transform: uppercase;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(var(--color-3), 0.5);
+    border-radius: 4px;
+    color: #f8f8f2;
+    padding: 0 6px;
+    outline: none;
+  }
+
+  .meta-input:focus {
+    border-color: rgb(var(--color-2));
+  }
+
+  .meta-input.invalid {
+    border-color: rgba(255, 80, 80, 0.7);
   }
 
 </style>

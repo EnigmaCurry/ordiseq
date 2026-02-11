@@ -49,11 +49,6 @@ export interface SequenceChord {
   customLabel?: string;
 }
 
-export interface SequencerConfig {
-  type: SequencerType;
-  euclidean: EuclidRow[];
-}
-
 const NOTE_NAMES = [
   "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
 ];
@@ -131,15 +126,30 @@ export function bjorklund(length: number, hits: number): boolean[] {
   return pattern;
 }
 
-/** Rotate a pattern by `rotation` steps. */
-function rotatePattern(pattern: boolean[], rotation: number): boolean[] {
-  if (pattern.length === 0) return pattern;
-  const r = ((rotation % pattern.length) + pattern.length) % pattern.length;
-  return [...pattern.slice(r), ...pattern.slice(0, r)];
-}
-
-const STEP_BEATS = 0.25; // 16th note
+export const STEP_BEATS = 0.25; // 16th note
 const GATE_RATIO = 0.5;
+
+/** Compute the StepState[] for a single EuclidRow (manual or euclidean). */
+export function computeStepPattern(row: EuclidRow): StepState[] {
+  if (row.manualPattern) return row.manualPattern;
+
+  const hitPat = bjorklund(row.length, row.hits);
+  const accentPat = row.accents > 0 ? bjorklund(row.hits, row.accents) : [];
+  const combined: StepState[] = [];
+  let hitIndex = 0;
+  for (let s = 0; s < hitPat.length; s++) {
+    if (!hitPat[s]) {
+      combined.push("off");
+    } else {
+      const isAccent = accentPat.length > 0 && accentPat[hitIndex % accentPat.length];
+      combined.push(isAccent ? "accent" : "hit");
+      hitIndex++;
+    }
+  }
+  if (row.rotation === 0 || combined.length === 0) return combined;
+  const r = ((row.rotation % combined.length) + combined.length) % combined.length;
+  return [...combined.slice(r), ...combined.slice(0, r)];
+}
 
 function gcd(a: number, b: number): number {
   while (b) { [a, b] = [b, a % b]; }
@@ -150,73 +160,162 @@ function lcm(a: number, b: number): number {
   return (a / gcd(a, b)) * b;
 }
 
-/** Generate a MidiClip from euclidean sequencer rows.
- *  Clip length = LCM of all row lengths so each row loops independently (polyrhythm). */
-export function euclideanToClip(rows: EuclidRow[]): MidiClip {
-  const totalSteps = rows.reduce((acc, r) => lcm(acc, r.length), 1);
-  const lengthBeats = totalSteps * STEP_BEATS;
-  const notes: ClipNote[] = [];
-
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    const baseVel = (row.velocity ?? 100) / 127;
-    const accVel = (row.accentVelocity ?? 127) / 127;
-
-    // Determine per-step pattern: manual or euclidean
-    let stepPattern: StepState[];
-    if (row.manualPattern) {
-      stepPattern = row.manualPattern;
-    } else {
-      // Apply accents before rotation: assign accent to each hit, then rotate the combined pattern
-      const hitPattern = bjorklund(row.length, row.hits);
-      const accentPattern = row.accents > 0 ? bjorklund(row.hits, row.accents) : [];
-      const combined: StepState[] = [];
-      let hitIdx = 0;
-      for (let s = 0; s < row.length; s++) {
-        if (!hitPattern[s]) {
-          combined.push("off");
-        } else {
-          const isAccent = accentPattern.length > 0 && accentPattern[hitIdx % accentPattern.length];
-          combined.push(isAccent ? "accent" : "hit");
-          hitIdx++;
-        }
-      }
-      // Rotate the combined result
-      if (row.rotation === 0 || combined.length === 0) {
-        stepPattern = combined;
-      } else {
-        const r = ((row.rotation % combined.length) + combined.length) % combined.length;
-        stepPattern = [...combined.slice(r), ...combined.slice(0, r)];
-      }
-    }
-
-    for (let step = 0; step < totalSteps; step++) {
-      const si = step % row.length;
-      const state = stepPattern[si];
-      if (state !== "off") {
-        const vel = state === "accent" ? accVel : baseVel;
-        if (vel > 0) {
-          notes.push({
-            note: row.note,
-            channel: 0,
-            velocity: vel,
-            start_beats: step * STEP_BEATS,
-            duration_beats: STEP_BEATS * GATE_RATIO,
-          });
-        }
-      }
-    }
-  }
-
-  return {
-    name: "Euclidean",
-    length_beats: lengthBeats,
-    notes,
-  };
-}
-
 export function defaultEuclidRow(note: number = 36): EuclidRow {
   return { note, length: 16, hits: 4, rotation: 0, accents: 0, velocity: 100, accentVelocity: 127 };
+}
+
+// --- Meta-sequencer ---
+
+export interface EuclidRowMeta {
+  slots: Record<string, EuclidRow>;  // "A".."Z"
+  metaSequence: string;              // e.g. "AAAA"
+  activeSlot: string;                // currently editing letter (UI-only, not persisted)
+}
+
+const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+export function defaultEuclidRowMeta(note: number = 36): EuclidRowMeta {
+  const base = defaultEuclidRow(note);
+  const slots: Record<string, EuclidRow> = {};
+  for (const ch of ALPHABET) {
+    slots[ch] = { ...base };
+  }
+  return { slots, metaSequence: "AAAA", activeSlot: "A" };
+}
+
+/** Convert stored rows (no activeSlot) to runtime EuclidRowMeta[]. */
+export function storedToRowMetas(stored: { slots: Record<string, EuclidRow>; metaSequence: string }[]): EuclidRowMeta[] {
+  return stored.map(s => ({ ...s, activeSlot: "A" }));
+}
+
+const MAX_EXPANDED_LENGTH = 256;
+
+/** Parse a meta-sequence string into an array of slot letters.
+ *  Supports: plain letters "ABCD", repeat "A4", group repeat "(AB)2", nested "(A2B)3".
+ *  Returns null on parse error or if expansion exceeds limit. */
+export function parseMetaSequence(input: string): string[] | null {
+  const trimmed = input.trim().toUpperCase();
+  if (trimmed.length === 0) return [];
+
+  let pos = 0;
+
+  function parseNumber(): number {
+    let numStr = "";
+    while (pos < trimmed.length && trimmed[pos] >= "0" && trimmed[pos] <= "9") {
+      numStr += trimmed[pos];
+      pos++;
+    }
+    return numStr.length > 0 ? parseInt(numStr, 10) : 1;
+  }
+
+  function parseSequence(): string[] | null {
+    const result: string[] = [];
+    while (pos < trimmed.length) {
+      const ch = trimmed[pos];
+      if (ch === ")") break;
+      if (ch === "(") {
+        pos++; // skip '('
+        const inner = parseSequence();
+        if (inner === null) return null;
+        if (pos >= trimmed.length || trimmed[pos] !== ")") return null;
+        pos++; // skip ')'
+        const repeat = parseNumber();
+        for (let i = 0; i < repeat; i++) {
+          result.push(...inner);
+          if (result.length > MAX_EXPANDED_LENGTH) return null;
+        }
+      } else if (ch >= "A" && ch <= "Z") {
+        const letter = ch;
+        pos++;
+        const repeat = parseNumber();
+        for (let i = 0; i < repeat; i++) {
+          result.push(letter);
+          if (result.length > MAX_EXPANDED_LENGTH) return null;
+        }
+      } else {
+        return null; // invalid character
+      }
+    }
+    return result;
+  }
+
+  const result = parseSequence();
+  if (result === null || pos !== trimmed.length) return null;
+  if (result.length === 0) return null;
+  return result;
+}
+
+const MAX_CLIP_NOTES = 10_000;
+
+/** Generate a MidiClip from euclidean row metas with meta-sequences.
+ *  Each row's meta-sequence expands to a series of slot patterns concatenated.
+ *  Clip length = LCM of all rows' total steps (polyrhythm).
+ *  Notes capped at 10,000. */
+export function euclideanMetaToClip(metas: EuclidRowMeta[]): MidiClip {
+  interface ExpandedRow {
+    notes: ClipNote[];
+    totalSteps: number;
+  }
+
+  const expandedRows: ExpandedRow[] = [];
+
+  for (const meta of metas) {
+    const letters = parseMetaSequence(meta.metaSequence) ?? ["A"];
+    let stepOffset = 0;
+    const rowNotes: ClipNote[] = [];
+
+    for (const letter of letters) {
+      const row = meta.slots[letter] ?? meta.slots["A"];
+      const pattern = computeStepPattern(row);
+      const baseVel = (row.velocity ?? 100) / 127;
+      const accVel = (row.accentVelocity ?? 127) / 127;
+
+      for (let step = 0; step < row.length; step++) {
+        const state = pattern[step];
+        if (state !== "off") {
+          const vel = state === "accent" ? accVel : baseVel;
+          if (vel > 0) {
+            rowNotes.push({
+              note: row.note,
+              channel: 0,
+              velocity: vel,
+              start_beats: (stepOffset + step) * STEP_BEATS,
+              duration_beats: STEP_BEATS * GATE_RATIO,
+            });
+          }
+        }
+      }
+      stepOffset += row.length;
+    }
+
+    expandedRows.push({ notes: rowNotes, totalSteps: stepOffset });
+  }
+
+  // Clip length = LCM of all rows' total expanded steps
+  const totalClipSteps = expandedRows.reduce((acc, r) => r.totalSteps > 0 ? lcm(acc, r.totalSteps) : acc, 1);
+  const lengthBeats = totalClipSteps * STEP_BEATS;
+
+  // Tile each row's notes to fill the total clip length
+  const allNotes: ClipNote[] = [];
+  for (const er of expandedRows) {
+    if (er.totalSteps === 0) continue;
+    const repeatsNeeded = totalClipSteps / er.totalSteps;
+    const rowLengthBeats = er.totalSteps * STEP_BEATS;
+    for (let rep = 0; rep < repeatsNeeded; rep++) {
+      const offset = rep * rowLengthBeats;
+      for (const n of er.notes) {
+        allNotes.push({ ...n, start_beats: n.start_beats + offset });
+      }
+      if (allNotes.length > MAX_CLIP_NOTES) break;
+    }
+    if (allNotes.length > MAX_CLIP_NOTES) break;
+  }
+
+  if (allNotes.length > MAX_CLIP_NOTES) {
+    allNotes.length = MAX_CLIP_NOTES;
+  }
+
+  return { name: "Euclidean", length_beats: lengthBeats, notes: allNotes };
 }
 
 /** Generate a MidiClip from a chord sequence. Async because non-custom chords
@@ -246,12 +345,18 @@ export async function chordsToClip(sequence: SequenceChord[], octaveStart: numbe
 
 const STORAGE_KEY = "sequencer-configs";
 
+interface StoredEuclidRowMeta {
+  slots: Record<string, EuclidRow>;
+  metaSequence: string;
+}
+
 interface StoredConfig {
   type: SequencerType;
-  rows: EuclidRow[];
+  rows: StoredEuclidRowMeta[];
   noteTrigger?: boolean;
   chordSequence?: SequenceChord[];
   octaveStart?: number;
+  version?: number;
 }
 
 function loadAllConfigs(): Record<string, StoredConfig> {
@@ -271,21 +376,9 @@ function configKey(name: string, program: number): string {
   return `${name}:P${program}`;
 }
 
-export function loadConfigForClient(name: string, program: number = 1): StoredConfig | null {
-  const all = loadAllConfigs();
-  // Try per-program key first, then migrate from legacy (unkeyed) config
-  let config = all[configKey(name, program)];
-  if (!config && program === 1 && all[name]) {
-    // Migrate legacy config to program 1
-    config = all[name];
-    all[configKey(name, 1)] = config;
-    delete all[name];
-    saveAllConfigs(all);
-  }
-  if (!config) return null;
-  // Migrate old rows missing fields
-  config.rows = config.rows.map((r, i) => ({
-    note: r.note ?? 36 + i,
+function migrateOldEuclidRow(r: any, index: number): EuclidRow {
+  return {
+    note: r.note ?? 36 + index,
     length: r.length,
     hits: r.hits,
     rotation: r.rotation,
@@ -293,16 +386,50 @@ export function loadConfigForClient(name: string, program: number = 1): StoredCo
     velocity: r.velocity ?? 100,
     accentVelocity: r.accentVelocity ?? 127,
     ...(r.manualPattern ? { manualPattern: r.manualPattern } : {}),
-  }));
-  return config;
+  };
+}
+
+export function loadConfigForClient(name: string, program: number = 1): StoredConfig | null {
+  const all = loadAllConfigs();
+  // Try per-program key first, then migrate from legacy (unkeyed) config
+  let config = all[configKey(name, program)] as any;
+  if (!config && program === 1 && all[name]) {
+    config = all[name];
+    all[configKey(name, 1)] = config;
+    delete all[name];
+    saveAllConfigs(all);
+  }
+  if (!config) return null;
+
+  // Detect old format: rows are flat EuclidRow[] (have "note" at top level, no "slots")
+  if (config.rows && config.rows.length > 0 && !config.version) {
+    config.rows = (config.rows as any[]).map((oldRow: any, i: number) => {
+      if (oldRow.slots) return oldRow; // already new format
+      const migrated = migrateOldEuclidRow(oldRow, i);
+      const slots: Record<string, EuclidRow> = {};
+      for (const ch of ALPHABET) {
+        slots[ch] = { ...migrated };
+      }
+      return { slots, metaSequence: "AAAA" } as StoredEuclidRowMeta;
+    });
+    config.version = 2;
+    all[configKey(name, program)] = config;
+    saveAllConfigs(all);
+  }
+
+  return config as StoredConfig;
 }
 
 export function saveConfigForClient(
-  name: string, type: SequencerType, rows: EuclidRow[], program: number = 1, noteTrigger: boolean = false,
+  name: string, type: SequencerType, rowMetas: EuclidRowMeta[], program: number = 1, noteTrigger: boolean = false,
   chordSequence?: SequenceChord[], octaveStart?: number,
 ) {
   const all = loadAllConfigs();
-  all[configKey(name, program)] = { type, rows, noteTrigger, chordSequence, octaveStart };
+  const storedRows: StoredEuclidRowMeta[] = rowMetas.map(m => ({
+    slots: m.slots,
+    metaSequence: m.metaSequence,
+  }));
+  all[configKey(name, program)] = { type, rows: storedRows, noteTrigger, chordSequence, octaveStart, version: 2 };
   saveAllConfigs(all);
 }
 

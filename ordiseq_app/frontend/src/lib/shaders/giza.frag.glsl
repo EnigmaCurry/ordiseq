@@ -268,7 +268,7 @@ void main() {
 
       // Per-column stream
       float colSeed = hash(vec2(cell.x, fi * 73.13));
-      float speed = (1.0 + colSeed * 2.0) * tempo;
+      float speed = (0.25 + colSeed * 0.5) * tempo;
       float phase = colSeed * 100.0;
       float streamLen = 3.0 + colSeed * 6.0;
       float gapLen = 16.0 + colSeed * 24.0;
@@ -281,7 +281,7 @@ void main() {
       if (cyclePos < streamLen) {
         float dist = cyclePos;
 
-        float charSeed = hash(cell + vec2(fi * 37.0, floor(syncTime * (1.5 + colSeed * 2.0) * tempo)));
+        float charSeed = hash(cell + vec2(fi * 37.0, floor(syncTime * (0.375 + colSeed * 0.5) * tempo)));
         float g = glyph(cellUV, charSeed);
 
         // Head is bright, tail fades

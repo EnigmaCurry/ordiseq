@@ -201,6 +201,9 @@ pub fn clip_to_midi_file(clip: MidiClip, repeats: Option<u32>) -> Result<MidiRes
         }
     }
 
+    const MAX_NOTES: usize = 10_000;
+    raw_notes.truncate(MAX_NOTES);
+
     let smf = clip_to_midi(clip.length_beats * repeats as f32, &raw_notes);
 
     let temp_file = tempfile::Builder::new()
