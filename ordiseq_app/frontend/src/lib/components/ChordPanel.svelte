@@ -306,6 +306,24 @@
   }
 
   let octaveLabel: string = $derived(`C${Math.floor(octaveStart / 12) - 1}`);
+
+  // Sync chord chooser to the currently playing chord
+  let lastPlaybackChordIndex = -1;
+  $effect(() => {
+    if (!$transportPlaying || sequence.length === 0) {
+      lastPlaybackChordIndex = -1;
+      return;
+    }
+    const idx = getActiveChordIndex($beatPosition);
+    if (idx < 0 || idx === lastPlaybackChordIndex) return;
+    lastPlaybackChordIndex = idx;
+    const chord = sequence[idx];
+    selectedRoot = chord.root;
+    selectedChordType = chord.chordType;
+    if (chord.chordType === "Custom" && chord.customNotes) {
+      activeNotes = new Set(chord.customNotes);
+    }
+  });
 </script>
 
 <div class="chord-panel">
