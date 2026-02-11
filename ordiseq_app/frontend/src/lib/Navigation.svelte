@@ -8,8 +8,8 @@
   const IDLE_DELAY = 2000;
 
   const pages: { id: Page; label: string }[] = [
-    { id: "clients", label: "Clients" },
     { id: "graphics", label: "Graphics" },
+    { id: "clients", label: "Clients" },
     { id: "settings", label: "Settings" },
   ];
 

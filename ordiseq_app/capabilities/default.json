@@ -10,6 +10,7 @@
     "store:allow-set",
     "store:allow-save",
     "store:allow-load",
+    "store:allow-clear",
     "core:window:allow-set-always-on-top",
     "core:window:allow-set-icon",
     "core:window:allow-show",

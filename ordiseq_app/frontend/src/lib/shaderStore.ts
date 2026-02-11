@@ -34,20 +34,20 @@ export const exampleShaders: Record<string, string> = {
 };
 
 const defaultConfig: ShaderConfig = {
-  fragmentShader: plasmaShader,
+  fragmentShader: platonicShader,
   uniforms: {
     u_pitch: 0.0,
     u_speed: 0.02,
     u_zoom: 12.0,
     u_fisheye: 0.04,
-    u_overlay: 0.9,
+    u_overlay: 0.69,
     u_bpm: 120.0,
     u_beat: 0.0,
     u_playing: 0.0,
-    u_color1: [1.0, 0.08, 0.58],   // Hot pink
-    u_color2: [0.0, 1.0, 0.87],    // Cyan
-    u_color3: [0.72, 0.58, 0.96],  // Soft lavender
-    u_color4: [0.10, 0.10, 0.18],  // Deep navy
+    u_color1: [1.0, 0.70, 0.28],   // Sunset orange (#ffb347)
+    u_color2: [1.0, 0.42, 0.42],   // Sunset coral (#ff6b6b)
+    u_color3: [0.78, 0.49, 0.73],  // Sunset mauve (#c77dba)
+    u_color4: [0.18, 0.11, 0.24],  // Sunset plum (#2d1b3d)
   },
 };
 
@@ -199,7 +199,7 @@ function rgbToHex(rgb: number[]): string {
 }
 
 // Track which shader is currently selected by name
-export const selectedShaderName = writable<string>("plasma");
+export const selectedShaderName = writable<string>("platonic");
 
 // Color theme presets
 export interface ColorTheme {
@@ -285,7 +285,7 @@ export const colorThemes: Record<string, ColorTheme> = {
   mainframe:   { label: "Mainframe",      color1: "#00bfff", color2: "#e0e0e0", color3: "#8b7ec8", color4: "#0f1729" },
 };
 
-export const selectedColorTheme = writable<string>("synthwave");
+export const selectedColorTheme = writable<string>("sunset");
 
 /**
  * Pick a random color theme and apply it. Returns the chosen theme key and color1 hex.
@@ -313,9 +313,9 @@ export async function initializeSettings(): Promise<void> {
     const settings = await loadShaderSettings();
 
     // Apply shader
-    const shader = exampleShaders[settings.selectedShader] || plasmaShader;
+    const shader = exampleShaders[settings.selectedShader] || platonicShader;
     selectedShaderName.set(settings.selectedShader);
-    selectedColorTheme.set(settings.colorTheme || "synthwave");
+    selectedColorTheme.set(settings.colorTheme || "sunset");
 
     // Apply uniforms with color conversion
     shaderConfig.set({

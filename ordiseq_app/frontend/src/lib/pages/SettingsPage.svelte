@@ -1,6 +1,6 @@
 <script lang="ts">
   import { setShader, setUniforms, exampleShaders, shaderConfig, animationConfig, setAnimationEnabled, setAnimationBase, persistSettings, selectedShaderName, colorThemes, selectedColorTheme } from "../shaderStore";
-  import { loadAlwaysOnTop, saveAlwaysOnTop, loadIconShape, saveIconShape, loadListenPort, saveListenPort } from "../settingsStore";
+  import { loadAlwaysOnTop, saveAlwaysOnTop, loadIconShape, saveIconShape, loadListenPort, saveListenPort, clearAllSettings } from "../settingsStore";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { invoke } from "@tauri-apps/api/core";
   import { iconShapes, applyIcon, type IconShape } from "../iconGenerator";
@@ -69,7 +69,7 @@
   let speed = $state(0.02);
   let zoom = $state(12.0);
   let fisheye = $state(0.04);
-  let overlay = $state(0.9);
+  let overlay = $state(0.69);
   let animated = $state(true);
   let color1 = $state("#ff1493");
   let color2 = $state("#00ffde");
@@ -212,6 +212,13 @@
       setUniforms({ u_pitch: basePitch, u_zoom: baseZoom, u_fisheye: baseFisheye });
     }
     persistSettings();
+  }
+
+  let showClearConfirm = $state(false);
+
+  async function handleClearAll() {
+    await clearAllSettings();
+    window.location.reload();
   }
 
   function applyColors(c1: string, c2: string, c3: string, c4: string) {
@@ -469,6 +476,21 @@
       <div class="port-status">{portStatus}</div>
     </div>
   </div>
+
+  <div class="settings-section danger-section">
+    <h2>Danger Zone</h2>
+    {#if !showClearConfirm}
+      <button class="danger-btn" onclick={() => showClearConfirm = true}>
+        Clear All Settings
+      </button>
+    {:else}
+      <p class="confirm-text">This will reset everything to defaults and reload the app.</p>
+      <div class="confirm-actions">
+        <button class="danger-btn" onclick={handleClearAll}>Yes, clear everything</button>
+        <button class="cancel-btn" onclick={() => showClearConfirm = false}>Cancel</button>
+      </div>
+    {/if}
+  </div>
 </div>
 
 <style>
@@ -638,5 +660,50 @@
     font-size: 0.8rem;
     color: rgb(var(--color-2));
     margin-top: 0.4rem;
+  }
+
+  .danger-section {
+    border-color: rgba(255, 60, 60, 0.3);
+  }
+
+  .danger-section h2 {
+    color: #ff4444;
+  }
+
+  .danger-btn {
+    background: rgba(200, 30, 30, 0.25);
+    color: #ff4444;
+    border: 1px solid rgba(255, 60, 60, 0.4);
+    padding: 0.6rem 1.2rem;
+    font-size: 0.9rem;
+  }
+
+  .danger-btn:hover {
+    background: rgba(200, 30, 30, 0.4);
+    filter: none;
+  }
+
+  .cancel-btn {
+    background: rgba(255, 255, 255, 0.08);
+    color: #aaa;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    padding: 0.6rem 1.2rem;
+    font-size: 0.9rem;
+  }
+
+  .cancel-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    filter: none;
+  }
+
+  .confirm-text {
+    color: #ff6666;
+    font-size: 0.9rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .confirm-actions {
+    display: flex;
+    gap: 0.75rem;
   }
 </style>

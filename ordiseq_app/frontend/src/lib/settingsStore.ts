@@ -32,18 +32,18 @@ const LISTEN_PORT_KEY = "listenPort";
 const WINDOW_POSITION_KEY = "windowPosition";
 
 const defaultSettings: ShaderSettings = {
-  selectedShader: "plasma",
-  colorTheme: "synthwave",
+  selectedShader: "platonic",
+  colorTheme: "sunset",
   uniforms: {
     pitch: 0.0,
     speed: 0.02,
     zoom: 12.0,
     fisheye: 0.04,
-    overlay: 0.9,
-    color1: "#ff1493",
-    color2: "#00ffde",
-    color3: "#b794f6",
-    color4: "#1a1a2e",
+    overlay: 0.69,
+    color1: "#ffb347",
+    color2: "#ff6b6b",
+    color3: "#c77dba",
+    color4: "#2d1b3d",
   },
   animationEnabled: true,
 };
@@ -167,4 +167,10 @@ export async function saveWindowPosition(pos: WindowPosition): Promise<void> {
   } catch (e) {
     console.warn("Failed to save window position:", e);
   }
+}
+
+export async function clearAllSettings(): Promise<void> {
+  const s = await getStore();
+  await s.clear();
+  await s.save();
 }

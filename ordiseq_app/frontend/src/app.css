@@ -17,11 +17,11 @@
 
 :root {
   /* Theme colors from shader - set dynamically via JS */
-  --color-1: 255, 20, 147;   /* Primary: headings, accents, button text */
-  --color-2: 0, 255, 222;    /* Secondary: values, links, info */
-  --color-3: 183, 148, 246;  /* Tertiary: labels, borders */
-  --color-4: 26, 26, 46;     /* Quaternary: button/input backgrounds */
-  --text-on-1: 255, 255, 255; /* Best-contrast text on color-1 bg */
+  --color-1: 255, 179, 71;   /* Primary: headings, accents, button text (Sunset) */
+  --color-2: 255, 107, 107;  /* Secondary: values, links, info */
+  --color-3: 199, 125, 186;  /* Tertiary: labels, borders */
+  --color-4: 45, 27, 61;     /* Quaternary: button/input backgrounds */
+  --text-on-1: 0, 0, 0;       /* Best-contrast text on color-1 bg */
   --text-on-2: 0, 0, 0;       /* Best-contrast text on color-2 bg */
 
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
