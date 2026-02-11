@@ -3,7 +3,7 @@ import App from "./App.svelte";
 import ShaderBackground from "./lib/ShaderBackground.svelte";
 import { mount } from "svelte";
 import { themeColors, applyTheme } from "./lib/themeStore";
-import { initializeSettings } from "./lib/shaderStore";
+import { initializeSettings, randomizeTheme } from "./lib/shaderStore";
 import { loadAlwaysOnTop, loadIconShape, loadShaderSettings } from "./lib/settingsStore";
 import { applyIcon } from "./lib/iconGenerator";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -51,6 +51,16 @@ async function init() {
 
     // Subscribe to theme colors and apply them
     themeColors.subscribe(applyTheme);
+
+    // F12 = randomize color theme
+    document.addEventListener("keydown", async (e) => {
+      if (e.key === "F12") {
+        e.preventDefault();
+        const { color1 } = randomizeTheme();
+        const shape = await loadIconShape();
+        await applyIcon(shape, color1);
+      }
+    });
 
     // Start polling for connected clients
     startPolling();

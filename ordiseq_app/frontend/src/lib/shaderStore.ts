@@ -286,6 +286,24 @@ export const colorThemes: Record<string, ColorTheme> = {
 export const selectedColorTheme = writable<string>("synthwave");
 
 /**
+ * Pick a random color theme and apply it. Returns the chosen theme key and color1 hex.
+ */
+export function randomizeTheme(): { key: string; color1: string } {
+  const keys = Object.keys(colorThemes);
+  const key = keys[Math.floor(Math.random() * keys.length)];
+  const theme = colorThemes[key];
+  selectedColorTheme.set(key);
+  setUniforms({
+    u_color1: hexToRgb(theme.color1),
+    u_color2: hexToRgb(theme.color2),
+    u_color3: hexToRgb(theme.color3),
+    u_color4: hexToRgb(theme.color4),
+  });
+  persistSettings();
+  return { key, color1: theme.color1 };
+}
+
+/**
  * Initialize settings from persistent storage
  */
 export async function initializeSettings(): Promise<void> {

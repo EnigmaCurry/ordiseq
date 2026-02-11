@@ -26,6 +26,33 @@ vec3 hsv2rgb(vec3 c) {
   return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
 }
 
+// Draws a classic saucer UFO shape, blends into col
+void drawSaucer(vec2 d, float sW, float sH, float time,
+                vec3 ca, vec3 cb, vec3 cc, vec3 cd,
+                float glowStr, float colorSeed,
+                inout vec3 col, float vis) {
+  float sDist = length(d / vec2(sW, sH));
+  float saucer = smoothstep(1.1, 0.85, sDist);
+  float dOffy = sH * 1.125;
+  float dDist = length((d - vec2(0.0, dOffy)) / vec2(sW * 0.4, sH * 2.0));
+  float dome = smoothstep(1.1, 0.85, dDist) * smoothstep(0.0, sH * 0.5, d.y);
+  float rimSum = 0.0;
+  for (int i = 0; i < 6; i++) {
+    float a = float(i) * 1.0472 + time * 1.5;
+    vec2 lp = vec2(cos(a) * sW * 0.88, sin(a) * sH * 0.88);
+    rimSum += exp(-length(d - lp) * min(11.0 / sW, 400.0));
+  }
+  float botGlow = exp(-length(d / vec2(sW * 0.6, sH * 1.25) + vec2(0.0, 1.2)) * 2.0);
+  botGlow *= glowStr;
+  float body = max(saucer, dome);
+  vec3 uCol = cc * 0.12;
+  uCol = mix(uCol, mix(cb, vec3(0.7), 0.25) * 0.5, dome / max(body, 0.001));
+  uCol += mix(ca, cb, 0.5) * botGlow * 0.7;
+  uCol += mix(ca, cd, fract(time * 0.2 + colorSeed)) * rimSum;
+  col = mix(col, uCol, body * vis);
+  col += mix(ca, cb, 0.5) * exp(-length(d) * min(1.3 / sW, 50.0)) * 0.1 * vis;
+}
+
 void main() {
   vec2 rawUV = gl_FragCoord.xy / u_resolution;
   float aspect = u_resolution.x / u_resolution.y;
@@ -267,84 +294,195 @@ void main() {
     col += c1 * horizGlow;
   }
 
-  // --- UFO encounter ---
+  // --- UFO encounters ---
   {
     float ufoEpoch = 55.0;
     float ufoSlot = floor(rawTime / ufoEpoch);
     float ufoRng = fract(sin(ufoSlot * 127.31 + 91.7) * 43758.5453);
 
-    if (ufoRng > 0.5) {
+    if (ufoRng > 0.45) {
       float lt = fract(rawTime / ufoEpoch);
-      float ufoVis = smoothstep(0.05, 0.14, lt) * smoothstep(0.95, 0.86, lt);
+      float typeRng = fract(ufoRng * 3.71);
 
-      if (ufoVis > 0.001) {
-        // Flight direction alternates per encounter
-        float dir = step(0.5, fract(ufoRng * 7.31)) * 2.0 - 1.0;
+      if (typeRng < 0.34) {
+        // ====== Encounter 1: Solo saucer with tractor beam ======
+        float ufoVis = smoothstep(0.05, 0.14, lt) * smoothstep(0.95, 0.86, lt);
+        if (ufoVis > 0.001) {
+          float dir = step(0.5, fract(ufoRng * 7.31)) * 2.0 - 1.0;
+          float ft = lt * lt * (3.0 - 2.0 * lt);
+          ft = ft * ft * (3.0 - 2.0 * ft);
+          float ufoX = 0.5 + dir * (0.7 - 1.4 * ft);
+          float ufoY = horizon + 0.20 + sin(ft * 3.14159) * 0.05
+                       + sin(rawTime * 1.7) * 0.003;
+          vec2 dU = vec2((uv.x - ufoX) * aspect, uv.y - ufoY);
+          float beamStr = smoothstep(0.15, 0.05, abs(ufoX - 0.5));
 
-        // Double smoothstep flight path: cruise in, hover in middle, cruise out
-        float ft = lt * lt * (3.0 - 2.0 * lt);
-        ft = ft * ft * (3.0 - 2.0 * ft);
+          // Tractor beam
+          if (beamStr > 0.01 && uv.y < ufoY - 0.005) {
+            float bTop = ufoY - 0.005;
+            float bBot = horizon - 0.25;
+            float bT = clamp((bTop - uv.y) / (bTop - bBot), 0.0, 1.0);
+            float hw = mix(0.012, 0.11, bT * bT) / aspect;
+            float be = smoothstep(1.0, 0.4, abs(uv.x - ufoX) / hw);
+            be *= beamStr * ufoVis * (1.0 - bT * 0.35);
+            be *= 0.55 + 0.45 * sin(uv.y * 80.0 - rawTime * 4.0);
+            float spark = sin(uv.y * 140.0 + rawTime * 2.5)
+                        * sin(uv.x * 100.0 * aspect - rawTime * 0.8);
+            be += max(spark, 0.0) * 0.15 * be;
+            col += mix(c1, c2, 0.3) * be * 0.3;
+          }
 
-        float ufoX = 0.5 + dir * (0.7 - 1.4 * ft);
-        float ufoY = horizon + 0.20 + sin(ft * 3.14159) * 0.05
-                     + sin(rawTime * 1.7) * 0.003;
-
-        vec2 dUfo = vec2((uv.x - ufoX) * aspect, uv.y - ufoY);
-
-        // Beam strength: ramps on when UFO is near road center
-        float beamStr = smoothstep(0.15, 0.05, abs(ufoX - 0.5));
-
-        // --- Tractor beam (drawn behind UFO) ---
-        if (beamStr > 0.01 && uv.y < ufoY - 0.005) {
-          float beamTopY = ufoY - 0.005;
-          float beamBotY = horizon - 0.25;
-          float bt = clamp((beamTopY - uv.y) / (beamTopY - beamBotY), 0.0, 1.0);
-          float hw = mix(0.012, 0.11, bt * bt) / aspect;
-          float be = smoothstep(1.0, 0.4, abs(uv.x - ufoX) / hw);
-          be *= beamStr * ufoVis * (1.0 - bt * 0.35);
-          // Animated scan lines inside beam
-          be *= 0.55 + 0.45 * sin(uv.y * 80.0 - rawTime * 4.0);
-          // Rising particle sparkle
-          float spark = sin(uv.y * 140.0 + rawTime * 2.5)
-                      * sin(uv.x * 100.0 * aspect - rawTime * 0.8);
-          be += max(spark, 0.0) * 0.15 * be;
-          col += mix(c1, c2, 0.3) * be * 0.3;
+          drawSaucer(dU, 0.05, 0.008, rawTime, c1, c2, c3, c4,
+                     0.4 + 0.6 * beamStr, 0.0, col, ufoVis);
         }
 
-        // --- UFO body ---
-        // Saucer (flat ellipse)
-        float sW = 0.05, sH = 0.008;
-        float sDist = length(dUfo / vec2(sW, sH));
-        float saucer = smoothstep(1.1, 0.85, sDist);
+      } else if (typeRng < 0.67) {
+        // ====== Encounter 2: Triangle formation — warp to sun, dance, vanish ======
+        float ufoVis = smoothstep(0.06, 0.14, lt) * smoothstep(0.88, 0.78, lt);
+        if (ufoVis > 0.001) {
+          float dir = step(0.5, fract(ufoRng * 5.13)) * 2.0 - 1.0;
 
-        // Dome (rounder, sits on top)
-        vec2 dOff = vec2(0.0, 0.009);
-        float dDist = length((dUfo - dOff) / vec2(0.02, 0.016));
-        float dome = smoothstep(1.1, 0.85, dDist) * smoothstep(0.0, 0.004, dUfo.y);
+          // Phase boundaries
+          float warpEnd = 0.20;
+          float danceStart = 0.22;
+          float danceEnd = 0.72;
 
-        // Rotating rim lights
-        float rimSum = 0.0;
-        for (int i = 0; i < 6; i++) {
-          float a = float(i) * 1.0472 + rawTime * 1.5;
-          vec2 lp = vec2(cos(a) * sW * 0.88, sin(a) * sH * 0.88);
-          rimSum += exp(-length(dUfo - lp) * 220.0);
+          // Dance position (computed for all phases, overridden during warp)
+          float danceLt = clamp(lt, danceStart, danceEnd);
+          float dp = (danceLt - danceStart) / (danceEnd - danceStart);
+          float jumpT = dp * 7.0;
+          float jumpIdx = floor(jumpT);
+          float snap = smoothstep(0.0, 0.04, fract(jumpT));
+          float ja1 = jumpIdx * 1.618 * 6.2832;
+          float ja2 = (jumpIdx + 1.0) * 1.618 * 6.2832;
+          float jr1 = 0.09 + sin(jumpIdx * 2.3) * 0.03;
+          float jr2 = 0.09 + sin((jumpIdx + 1.0) * 2.3) * 0.03;
+          vec2 fp1 = sunCenter + vec2(cos(ja1) * jr1, sin(ja1) * jr1 * 0.5);
+          vec2 fp2 = sunCenter + vec2(cos(ja2) * jr2, sin(ja2) * jr2 * 0.5);
+          vec2 formCenter = mix(fp1, fp2, snap);
+          float formRot = rawTime * 2.5 + snap * 0.8;
+          float formSize = 0.045 + sin(jumpIdx * 1.7) * 0.008;
+
+          if (lt < warpEnd) {
+            // Non-Newtonian warp in: constant velocity, instant start
+            float wt = clamp((lt - 0.06) / (warpEnd - 0.06), 0.0, 1.0);
+            vec2 startP = vec2(0.5 + dir * 0.9, horizon + 0.32);
+            formCenter = mix(startP, sunCenter + vec2(0.0, 0.06), wt);
+            formRot = rawTime * 2.0;
+            formSize = 0.05;
+          } else if (lt > danceEnd) {
+            // Non-Newtonian exit: instant acceleration upward
+            float exitT = clamp((lt - danceEnd) / (0.82 - danceEnd), 0.0, 1.0);
+            float exitD = smoothstep(0.0, 0.12, exitT);
+            formCenter += vec2(dir * 0.2, 0.7) * exitD;
+            formSize *= max(1.0 - exitT * 1.5, 0.0);
+          }
+
+          // Compute saucer positions
+          vec2 sPos[3];
+          for (int i = 0; i < 3; i++) {
+            float ta = formRot + float(i) * 2.0944;
+            sPos[i] = formCenter + vec2(cos(ta) * formSize,
+                                        sin(ta) * formSize * 0.6);
+          }
+
+          // Energy connections between formation members
+          for (int i = 0; i < 3; i++) {
+            int ni = i < 2 ? i + 1 : 0;
+            vec2 pa = vec2((uv.x - sPos[i].x) * aspect, uv.y - sPos[i].y);
+            vec2 ba = vec2((sPos[ni].x - sPos[i].x) * aspect,
+                            sPos[ni].y - sPos[i].y);
+            float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+            float ld = length(pa - ba * h);
+            float line = exp(-ld * 250.0) * 0.15;
+            line *= 0.6 + 0.4 * sin(h * 12.0 - rawTime * 3.0);
+            col += mix(c1, c4, 0.5) * line * ufoVis;
+          }
+
+          // Draw the three saucers
+          for (int i = 0; i < 3; i++) {
+            vec2 sd = vec2((uv.x - sPos[i].x) * aspect, uv.y - sPos[i].y);
+            drawSaucer(sd, 0.028, 0.005, rawTime, c1, c2, c3, c4,
+                       0.5, float(i) * 0.33, col, ufoVis);
+          }
         }
 
-        // Underside glow (intensifies with beam)
-        float botGlow = exp(-length(dUfo / vec2(0.03, 0.01) + vec2(0.0, 1.2)) * 2.0);
-        botGlow *= 0.4 + 0.6 * beamStr;
+      } else {
+        // ====== Encounter 3: Cylindrical UFO rotating above road ======
+        float ufoVis = smoothstep(0.06, 0.16, lt) * smoothstep(0.93, 0.82, lt);
+        if (ufoVis > 0.001) {
+          // Descent / hover / ascent
+          float hoverY = horizon + 0.22;
+          float cylY;
+          if (lt < 0.20) {
+            float dsc = clamp((lt - 0.06) / 0.14, 0.0, 1.0);
+            cylY = mix(1.1, hoverY, dsc * dsc * (3.0 - 2.0 * dsc));
+          } else if (lt < 0.75) {
+            cylY = hoverY + sin(rawTime * 0.7) * 0.008;
+          } else {
+            float asc = clamp((lt - 0.75) / 0.18, 0.0, 1.0);
+            cylY = mix(hoverY, 1.1, asc * asc);
+          }
+          float cylX = 0.5 + sin(rawTime * 0.13) * 0.03;
+          vec2 dC = vec2((uv.x - cylX) * aspect, uv.y - cylY);
 
-        // Assemble UFO
-        float ufoBody = max(saucer, dome);
-        vec3 ufoCol = c3 * 0.12;
-        ufoCol = mix(ufoCol, mix(c2, vec3(0.7), 0.25) * 0.5, dome / max(ufoBody, 0.001));
-        ufoCol += mix(c1, c2, 0.5) * botGlow * 0.7;
-        ufoCol += mix(c1, c4, fract(rawTime * 0.2 + float(0))) * rimSum;
+          // Rounded-rectangle SDF (capsule ends = cylinder profile)
+          float cW = 0.07, cH = 0.016, cR = 0.016;
+          vec2 q = abs(dC) - vec2(cW - cR, max(cH - cR, 0.001));
+          float cylSDF = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - cR;
+          float cylMask = smoothstep(0.003, 0.0, cylSDF);
 
-        col = mix(col, ufoCol, ufoBody * ufoVis);
+          // Surface bands showing axial rotation
+          float sa = asin(clamp(dC.y / (cH * 0.95), -1.0, 1.0));
+          float rot = rawTime * 1.8;
+          float band1 = sin((sa + rot) * 5.0) * 0.5 + 0.5;
+          float band2 = sin((sa + rot) * 11.0 + 1.7) * 0.5 + 0.5;
 
-        // Ambient glow halo
-        col += mix(c1, c2, 0.5) * exp(-length(dUfo) * 26.0) * 0.1 * ufoVis;
+          // Running lights along the length
+          float lightPhase = fract(dC.x / (cW * 2.0) * 8.0 + rawTime * 0.4);
+          float lightBelt = smoothstep(0.5, 0.2, abs(sa) / 1.5708);
+          float lights = smoothstep(0.15, 0.08, abs(lightPhase - 0.5))
+                       * lightBelt * cylMask;
+
+          // Cylinder color
+          vec3 cylCol = c3 * 0.08 + c4 * 0.05;
+          cylCol += c2 * band1 * 0.1;
+          cylCol += c1 * band2 * 0.05;
+          cylCol += mix(c1, c2, fract(lightPhase * 3.0 + rawTime * 0.2))
+                   * lights * 1.5;
+
+          // Edge rim highlight
+          float edgeH = smoothstep(0.0, 0.004, -cylSDF)
+                      * smoothstep(0.012, 0.003, -cylSDF);
+          cylCol += mix(c1, c2, 0.5) * edgeH * 0.3;
+
+          col = mix(col, cylCol, cylMask * ufoVis);
+
+          // Glow halo
+          col += mix(c1, c2, 0.5) * exp(-abs(cylSDF) * 50.0) * 0.12 * ufoVis;
+
+          // Searchlight sweeping the ground
+          float searchA = rawTime * 0.6;
+          float searchX = cylX + sin(searchA) * 0.12 / aspect;
+          // Light cone from cylinder to ground
+          float coneTopY = cylY - 0.01;
+          float groundSearchY = horizon - 0.08;
+          if (uv.y < coneTopY && uv.y > groundSearchY - 0.05) {
+            float ct = clamp((coneTopY - uv.y) / (coneTopY - groundSearchY), 0.0, 1.0);
+            float coneHW = mix(0.008, 0.045, ct) / aspect;
+            float coneX = mix(cylX, searchX, ct);
+            float coneDist = abs(uv.x - coneX) / coneHW;
+            float cone = smoothstep(1.0, 0.5, coneDist) * 0.12 * ct;
+            col += mix(c1, c2, 0.3) * cone * ufoVis;
+          }
+          // Ground spot
+          if (uv.y <= horizon) {
+            vec2 searchD = vec2((uv.x - searchX) * aspect,
+                                (uv.y - groundSearchY) * 2.5);
+            float searchLight = exp(-dot(searchD, searchD) * 50.0) * 0.2;
+            col += mix(c1, c2, 0.3) * searchLight * ufoVis;
+          }
+        }
       }
     }
   }
