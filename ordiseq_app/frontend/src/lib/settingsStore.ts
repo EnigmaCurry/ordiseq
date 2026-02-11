@@ -19,11 +19,17 @@ export interface ShaderSettings {
 
 import type { IconShape } from "./iconGenerator";
 
+export interface WindowPosition {
+  x: number;
+  y: number;
+}
+
 const STORE_FILE = "settings.json";
 const SHADER_KEY = "shader";
 const ALWAYS_ON_TOP_KEY = "alwaysOnTop";
 const ICON_SHAPE_KEY = "iconShape";
 const LISTEN_PORT_KEY = "listenPort";
+const WINDOW_POSITION_KEY = "windowPosition";
 
 const defaultSettings: ShaderSettings = {
   selectedShader: "plasma",
@@ -139,5 +145,26 @@ export async function saveListenPort(value: number): Promise<void> {
     await s.save();
   } catch (e) {
     console.warn("Failed to save listen port setting:", e);
+  }
+}
+
+export async function loadWindowPosition(): Promise<WindowPosition | null> {
+  try {
+    const s = await getStore();
+    const saved = await s.get<WindowPosition>(WINDOW_POSITION_KEY);
+    return saved ?? null;
+  } catch (e) {
+    console.warn("Failed to load window position:", e);
+    return null;
+  }
+}
+
+export async function saveWindowPosition(pos: WindowPosition): Promise<void> {
+  try {
+    const s = await getStore();
+    await s.set(WINDOW_POSITION_KEY, pos);
+    await s.save();
+  } catch (e) {
+    console.warn("Failed to save window position:", e);
   }
 }

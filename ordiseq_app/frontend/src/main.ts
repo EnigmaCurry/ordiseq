@@ -4,11 +4,26 @@ import ShaderBackground from "./lib/ShaderBackground.svelte";
 import { mount } from "svelte";
 import { themeColors, applyTheme } from "./lib/themeStore";
 import { initializeSettings, randomizeTheme } from "./lib/shaderStore";
-import { loadAlwaysOnTop, loadIconShape, loadShaderSettings } from "./lib/settingsStore";
+import { loadAlwaysOnTop, loadIconShape, loadShaderSettings, loadWindowPosition, saveWindowPosition } from "./lib/settingsStore";
+import type { WindowPosition } from "./lib/settingsStore";
 import { applyIcon } from "./lib/iconGenerator";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, availableMonitors, PhysicalPosition } from "@tauri-apps/api/window";
+import type { Monitor } from "@tauri-apps/api/window";
 import { startPolling } from "./lib/clientsStore";
 import { startTransportSync } from "./lib/transportStore";
+
+function isWindowWithinAnyMonitor(
+  x: number, y: number, width: number, height: number,
+  monitors: Monitor[],
+): boolean {
+  return monitors.some((m) => {
+    const left = m.position.x;
+    const top = m.position.y;
+    const right = m.position.x + m.size.width;
+    const bottom = m.position.y + m.size.height;
+    return x >= left && y >= top && (x + width) <= right && (y + height) <= bottom;
+  });
+}
 
 // Initialize app after loading settings
 async function init() {
@@ -28,6 +43,16 @@ async function init() {
     const iconShape = await loadIconShape();
     const shaderSettings = await loadShaderSettings();
     await applyIcon(iconShape, shaderSettings.uniforms.color1);
+
+    // Restore window position if saved and still within a monitor
+    const savedPos = await loadWindowPosition();
+    if (savedPos) {
+      const monitors = await availableMonitors();
+      const size = await win.outerSize();
+      if (isWindowWithinAnyMonitor(savedPos.x, savedPos.y, size.width, size.height, monitors)) {
+        await win.setPosition(new PhysicalPosition(savedPos.x, savedPos.y));
+      }
+    }
 
     // Create shader background container
     const shaderContainer = document.createElement("div");
@@ -67,6 +92,22 @@ async function init() {
 
     // Start transport sync (beat position interpolation for shaders)
     startTransportSync();
+
+    // Save window position on close (only if within screen bounds)
+    win.onCloseRequested(async (event) => {
+      event.preventDefault();
+      try {
+        const pos = await win.outerPosition();
+        const size = await win.outerSize();
+        const monitors = await availableMonitors();
+        if (isWindowWithinAnyMonitor(pos.x, pos.y, size.width, size.height, monitors)) {
+          await saveWindowPosition({ x: pos.x, y: pos.y });
+        }
+      } catch (e) {
+        console.warn("Failed to save window position on close:", e);
+      }
+      win.destroy();
+    });
   } finally {
     // Always show window, even if init errors
     await win.show();
