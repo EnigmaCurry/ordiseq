@@ -2,24 +2,12 @@
   import { invoke } from "@tauri-apps/api/core";
   import { onDestroy } from "svelte";
   import type { MidiClip, ClipNote } from "../clientsStore";
+  import Keyboard from "../components/Keyboard.svelte";
+  import ChordSelector from "../components/ChordSelector.svelte";
+  import SequenceTrack from "../components/SequenceTrack.svelte";
 
-  const NOTE_COUNT = 24;
   const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-
-  const CHORD_TYPES = [
-    "Major", "Minor", "Dim", "Aug",
-    "Maj7", "7", "m7", "mMaj7",
-    "dim7", "m7b5", "Aug7", "AugMaj7",
-    "9", "Maj9", "m9", "add9",
-    "sus2", "sus4", "6", "m6",
-  ];
-
-  interface Key {
-    midi: number;
-    name: string;
-    octave: number;
-    isBlack: boolean;
-  }
+  const NOTE_COUNT = 24;
 
   interface ClientInfo {
     id: number;
@@ -36,7 +24,6 @@
     customLabel?: string;
   }
 
-  const BAR_WIDTH = 100;
   const DRAG_THRESHOLD = 25; // px² (5px movement)
 
   // --- Sequence state ---
@@ -122,7 +109,6 @@
   }
 
   function startReorderDrag(e: MouseEvent, i: number) {
-    // Don't start drag when clicking buttons inside the chord block
     if ((e.target as HTMLElement).closest('button')) return;
     const chord = sequence[i];
     drag = { type: 'reorder', root: chord.root, chordType: chord.chordType, sourceIndex: i, startX: e.clientX, startY: e.clientY, active: false };
@@ -138,7 +124,7 @@
       if (dx * dx + dy * dy < DRAG_THRESHOLD) return;
       drag = { ...drag, active: true };
     }
-    e.preventDefault(); // prevent text selection while dragging
+    e.preventDefault();
     ghostX = e.clientX;
     ghostY = e.clientY;
 
@@ -201,22 +187,6 @@
 
   // --- Existing state ---
   let octaveStart = $state(48);
-
-  let keys: Key[] = $derived(
-    Array.from({ length: NOTE_COUNT }, (_, i) => {
-      const midi = octaveStart + i;
-      const noteIndex = midi % 12;
-      return {
-        midi,
-        name: NOTE_NAMES[noteIndex],
-        octave: Math.floor(midi / 12) - 1,
-        isBlack: [1, 3, 6, 8, 10].includes(noteIndex),
-      };
-    })
-  );
-
-  let whiteKeys: Key[] = $derived(keys.filter((k) => !k.isBlack));
-  let blackKeys: Key[] = $derived(keys.filter((k) => k.isBlack));
 
   // Client selection
   let clients: ClientInfo[] = $state([]);
@@ -299,16 +269,18 @@
     }
   }
 
-  function handleRootClick(i: number) {
+  function handleRootMouseDown(e: MouseEvent, i: number) {
     stopSequenceIfPlaying();
     selectedRoot = i;
     triggerChord();
+    startNewChordDrag(e, i, selectedChordType);
   }
 
-  function handleChordTypeClick(ct: string) {
+  function handleChordTypeMouseDown(e: MouseEvent, ct: string) {
     stopSequenceIfPlaying();
     selectedChordType = ct;
     triggerChord();
+    startNewChordDrag(e, selectedRoot, ct);
   }
 
   function octaveDown() {
@@ -317,19 +289,6 @@
 
   function octaveUp() {
     if (octaveStart + NOTE_COUNT < 128) octaveStart += 12;
-  }
-
-  let whiteW: number = $derived(100 / whiteKeys.length);
-
-  function blackKeyLeft(midi: number): number {
-    const noteInOctave = midi % 12;
-    const octaveOffset = Math.floor((midi - octaveStart) / 12);
-    const blackToWhiteIndex: Record<number, number> = {
-      1: 0, 3: 1, 6: 3, 8: 4, 10: 5,
-    };
-    const whiteIndexInOctave = blackToWhiteIndex[noteInOctave];
-    const whiteIndex = octaveOffset * 7 + whiteIndexInOctave;
-    return (whiteIndex + 1) * whiteW - whiteW * 0.3;
   }
 
   let octaveLabel: string = $derived(`C${Math.floor(octaveStart / 12) - 1}`);
@@ -359,7 +318,6 @@
     return () => { if (positionTimer) { clearInterval(positionTimer); positionTimer = null; } };
   });
 
-  // Auto-update chord selector to match the currently playing chord
   $effect(() => {
     if (activeChordIndex >= 0 && activeChordIndex < sequence.length) {
       const chord = sequence[activeChordIndex];
@@ -378,7 +336,6 @@
     }
   }
 
-  // Reset playback state when client changes
   let prevClientId: number | null = null;
   $effect(() => {
     if (selectedClientId !== prevClientId) {
@@ -424,55 +381,25 @@
 <div class="page">
   <h1>Test</h1>
 
-  <!-- Sequence Builder -->
-  <div class="sequence-section">
-    <div class="sequence-header">
-      <span class="sequence-title">Sequence</span>
-      {#if sequence.length > 0}
-        <span class="seq-info">{totalBars} bar{totalBars !== 1 ? 's' : ''}</span>
-        <button
-          class="seq-play-btn"
-          class:playing={sequencePlaying}
-          disabled={selectedClientId === null}
-          onclick={toggleSequencePlayback}
-        >{sequencePlaying ? "Stop" : "Play"}</button>
-        <button class="clear-seq-btn" onclick={() => { stopSequenceIfPlaying(); sequence = []; }}>Clear</button>
-      {/if}
-    </div>
-    <div
-      class="sequence-track"
-      class:drag-active={dropTargetIndex >= 0}
-      bind:this={sequenceEl}
-    >
-      {#if sequence.length === 0 && dropTargetIndex < 0}
-        <div class="seq-empty">Drag chords here to build a sequence</div>
-      {:else}
-        {#each sequence as chord, i (chord.id)}
-          <div
-            class="seq-chord"
-            class:dragging={drag?.active === true && drag.type === 'reorder' && drag.sourceIndex === i}
-            class:playing-chord={activeChordIndex === i}
-            onmousedown={(e) => startReorderDrag(e, i)}
-            onclick={() => selectSequenceChord(i)}
-            style="width: {chord.bars * BAR_WIDTH}px"
-          >
-            <button class="seq-remove" onclick={() => removeChord(i)}>×</button>
-            <div class="seq-chord-name">{chord.chordType === "Custom" ? (chord.customLabel || "Custom") : `${NOTE_NAMES[chord.root]} ${chord.chordType}`}</div>
-            <div class="seq-duration">
-              <button class="dur-btn" onclick={() => adjustDuration(i, -0.5)} disabled={chord.bars <= 0.5}>-</button>
-              <span class="dur-label">{chord.bars}</span>
-              <button class="dur-btn" onclick={() => adjustDuration(i, 0.5)}>+</button>
-            </div>
-          </div>
-        {/each}
-      {/if}
-      {#if dropTargetIndex >= 0}
-        <div class="drop-indicator" style="left: {dropIndicatorLeft}px"></div>
-      {/if}
-    </div>
-  </div>
+  <SequenceTrack
+    {sequence}
+    {activeChordIndex}
+    {dropTargetIndex}
+    {dropIndicatorLeft}
+    dragSourceIndex={drag?.type === 'reorder' ? drag.sourceIndex : -1}
+    dragActive={drag?.active ?? false}
+    {sequencePlaying}
+    {totalBars}
+    {selectedClientId}
+    onremove={removeChord}
+    onadjustduration={adjustDuration}
+    onstartreorderdrag={startReorderDrag}
+    onselect={selectSequenceChord}
+    ontoggleplay={toggleSequencePlayback}
+    onclear={() => { stopSequenceIfPlaying(); sequence = []; }}
+    onbindel={(el) => { sequenceEl = el; }}
+  />
 
-  <!-- Chord Selector -->
   <div class="panel">
     <div class="toolbar">
       <div class="chord-names">
@@ -503,57 +430,22 @@
       </div>
     </div>
 
-    <div class="root-row">
-      {#each NOTE_NAMES as name, i}
-        <button
-          class="root-btn"
-          class:active={selectedRoot === i}
-          class:black-note={[1, 3, 6, 8, 10].includes(i)}
-          onmousedown={(e) => { handleRootClick(i); startNewChordDrag(e, i, selectedChordType); }}
-        >{name}</button>
-      {/each}
-    </div>
+    <ChordSelector
+      {selectedRoot}
+      {selectedChordType}
+      onrootmousedown={handleRootMouseDown}
+      onchordtypemousedown={handleChordTypeMouseDown}
+    />
 
-    <div class="chord-grid">
-      {#each CHORD_TYPES as ct}
-        <button
-          class="chord-btn"
-          class:active={selectedChordType === ct}
-          onmousedown={(e) => { handleChordTypeClick(ct); startNewChordDrag(e, selectedRoot, ct); }}
-        >{ct}</button>
-      {/each}
-      {#if selectedChordType === "Custom"}
-        <button
-          class="chord-btn active"
-          onmousedown={(e) => startNewChordDrag(e, selectedRoot, "Custom")}
-        >Custom</button>
-      {/if}
-    </div>
-
-    <div class="keyboard">
-      {#each whiteKeys as key}
-        <div
-          class="key white"
-          class:active={activeNotes.has(key.midi)}
-          onmousedown={(e) => handleKeyMouseDown(e, key.midi)}
-        >
-          <span class="label">{key.name}{key.octave}</span>
-        </div>
-      {/each}
-
-      {#each blackKeys as key}
-        <div
-          class="key black"
-          class:active={activeNotes.has(key.midi)}
-          style="left: {blackKeyLeft(key.midi)}%; width: {whiteW * 0.6}%"
-          onmousedown={(e) => handleKeyMouseDown(e, key.midi)}
-        ></div>
-      {/each}
-    </div>
+    <Keyboard
+      {activeNotes}
+      {octaveStart}
+      noteCount={NOTE_COUNT}
+      onkeydown={handleKeyMouseDown}
+    />
   </div>
 </div>
 
-<!-- Drag ghost floating element -->
 {#if drag?.active}
   <div class="drag-ghost" style="left: {ghostX}px; top: {ghostY}px">
     {drag.chordType === "Custom" ? (chordNames[0] || "Custom") : `${NOTE_NAMES[drag.root]} ${drag.chordType}`}
@@ -569,216 +461,6 @@
     font-size: 2.5rem;
     color: rgb(var(--color-1));
     margin-bottom: 0.25rem;
-  }
-
-  /* ===== Sequence Builder ===== */
-  .sequence-section {
-    margin-bottom: 12px;
-  }
-
-  .sequence-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 6px;
-  }
-
-  .sequence-title {
-    font-size: 0.85rem;
-    font-weight: 700;
-    color: rgba(var(--color-3), 0.7);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .seq-info {
-    font-size: 0.75rem;
-    color: rgba(var(--color-3), 0.5);
-  }
-
-  .seq-play-btn {
-    margin-left: auto;
-    padding: 2px 10px;
-    font-size: 0.65rem;
-    font-weight: 700;
-    border-radius: 3px;
-    background: rgba(var(--color-1), 0.2);
-    color: rgb(var(--color-1));
-    border: 1px solid rgba(var(--color-1), 0.4);
-    cursor: pointer;
-  }
-
-  .seq-play-btn:hover:not(:disabled) {
-    background: rgba(var(--color-1), 0.35);
-  }
-
-  .seq-play-btn.playing {
-    background: rgba(var(--color-1), 0.6);
-    color: #fff;
-  }
-
-  .seq-play-btn:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-  }
-
-  .clear-seq-btn {
-    padding: 2px 8px;
-    font-size: 0.65rem;
-    border-radius: 3px;
-    background: rgba(255, 80, 80, 0.15);
-    color: #ff6666;
-    border: 1px solid rgba(255, 80, 80, 0.3);
-    cursor: pointer;
-  }
-
-  .clear-seq-btn:hover {
-    background: rgba(255, 80, 80, 0.3);
-  }
-
-  .sequence-track {
-    position: relative;
-    display: flex;
-    align-items: stretch;
-    gap: 4px;
-    padding: 6px;
-    min-height: 70px;
-    border: 2px dashed rgba(var(--color-3), 0.2);
-    border-radius: 6px;
-    overflow-x: auto;
-    transition: border-color 0.15s, background-color 0.15s;
-  }
-
-  .sequence-track.drag-active {
-    border-color: rgba(var(--color-1), 0.5);
-    background: rgba(var(--color-1), 0.04);
-  }
-
-  .seq-empty {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    font-size: 0.75rem;
-    color: rgba(var(--color-3), 0.35);
-    pointer-events: none;
-  }
-
-  .seq-chord {
-    flex-shrink: 0;
-    min-width: 70px;
-    background: rgba(var(--color-4), 0.12);
-    border: 1px solid rgba(var(--color-4), 0.25);
-    border-left: 3px solid rgb(var(--color-4));
-    outline: 1px solid rgb(var(--color-1));
-    border-radius: 4px;
-    padding: 6px 8px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    gap: 4px;
-    position: relative;
-    cursor: grab;
-    user-select: none;
-    transition: opacity 0.15s;
-  }
-
-  .seq-chord:active {
-    cursor: grabbing;
-  }
-
-  .seq-chord.dragging {
-    opacity: 0.35;
-  }
-
-  .seq-chord.playing-chord {
-    background: rgba(var(--color-1), 0.25);
-    border-color: rgba(var(--color-1), 0.6);
-    border-left-color: rgb(var(--color-1));
-    outline-color: rgb(var(--color-1));
-    box-shadow: 0 0 8px rgba(var(--color-1), 0.3);
-  }
-
-  .seq-chord-name {
-    font-size: 0.8rem;
-    font-weight: 700;
-    color: rgb(var(--color-2));
-    white-space: nowrap;
-  }
-
-  .seq-duration {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .dur-btn {
-    width: 20px;
-    height: 20px;
-    padding: 0;
-    font-size: 0.75rem;
-    font-weight: 700;
-    line-height: 1;
-    border-radius: 3px;
-    background: rgba(var(--color-3), 0.15);
-    color: rgb(var(--color-3));
-    border: 1px solid rgba(var(--color-3), 0.2);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .dur-btn:hover:not(:disabled) {
-    background: rgba(var(--color-3), 0.3);
-  }
-
-  .dur-btn:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-  }
-
-  .dur-label {
-    font-size: 0.65rem;
-    color: rgba(var(--color-3), 0.6);
-    min-width: 16px;
-    text-align: center;
-  }
-
-  .seq-remove {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    width: 16px;
-    height: 16px;
-    padding: 0;
-    font-size: 0.7rem;
-    line-height: 1;
-    background: transparent;
-    color: rgba(var(--color-3), 0.3);
-    border: none;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 2px;
-  }
-
-  .seq-remove:hover {
-    background: rgba(255, 0, 0, 0.2);
-    color: #ff6666;
-  }
-
-  .drop-indicator {
-    position: absolute;
-    top: 4px;
-    bottom: 4px;
-    width: 3px;
-    background: rgb(var(--color-1));
-    border-radius: 2px;
-    pointer-events: none;
-    z-index: 10;
   }
 
   /* ===== Drag Ghost ===== */
@@ -897,135 +579,5 @@
     opacity: 0.3;
     cursor: not-allowed;
     filter: none;
-  }
-
-  /* Root note row */
-  .root-row {
-    display: flex;
-    gap: 3px;
-    margin-bottom: 8px;
-  }
-
-  .root-btn {
-    flex: 1;
-    padding: 6px 0;
-    font-size: 0.75rem;
-    font-weight: 600;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.1);
-    color: #ccc;
-    border: 1px solid rgba(var(--color-3), 0.2);
-    cursor: pointer;
-    transition: background-color 0.1s ease;
-  }
-
-  .root-btn.black-note {
-    background: rgba(0, 0, 0, 0.3);
-    color: #999;
-  }
-
-  .root-btn:hover {
-    background: rgba(var(--color-3), 0.2);
-  }
-
-  .root-btn.active {
-    background: rgb(var(--color-1));
-    color: #fff;
-    border-color: rgb(var(--color-2));
-  }
-
-  /* Chord type grid */
-  .chord-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 3px;
-    margin-bottom: 10px;
-  }
-
-  .chord-btn {
-    padding: 5px 0;
-    font-size: 0.7rem;
-    font-weight: 600;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.06);
-    color: #aaa;
-    border: 1px solid rgba(var(--color-3), 0.15);
-    cursor: pointer;
-    transition: background-color 0.1s ease;
-  }
-
-  .chord-btn:hover {
-    background: rgba(var(--color-3), 0.15);
-  }
-
-  .chord-btn.active {
-    background: rgb(var(--color-1));
-    color: #fff;
-    border-color: rgb(var(--color-2));
-  }
-
-  /* Keyboard */
-  .keyboard {
-    position: relative;
-    display: flex;
-    height: 140px;
-    overflow: visible;
-  }
-
-  .key {
-    border: none;
-    padding: 0;
-    margin: 0;
-    font-size: 0.6rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background-color 0.1s ease;
-  }
-
-  .key.white {
-    flex: 1;
-    height: 100%;
-    background: #e8e8e8;
-    border-right: 1px solid #bbb;
-    border-radius: 0 0 4px 4px;
-    display: flex;
-    align-items: flex-end;
-    justify-content: center;
-    z-index: 1;
-  }
-
-  .key.white:last-child {
-    border-right: none;
-  }
-
-  .key.white.active {
-    background: rgb(var(--color-1));
-    border: 2px solid rgb(var(--color-2));
-    border-top: none;
-  }
-
-  .label {
-    color: #666;
-    padding-bottom: 6px;
-    pointer-events: none;
-  }
-
-  .key.white.active .label {
-    color: #fff;
-  }
-
-  .key.black {
-    position: absolute;
-    top: 0;
-    height: 58%;
-    background: #222;
-    border-radius: 0 0 3px 3px;
-    z-index: 2;
-  }
-
-  .key.black.active {
-    background: rgb(var(--color-1));
-    border: 2px solid rgb(var(--color-2));
-    border-top: none;
   }
 </style>
