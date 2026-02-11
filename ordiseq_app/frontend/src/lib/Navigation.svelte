@@ -11,7 +11,6 @@
     { id: "clients", label: "Clients" },
     { id: "graphics", label: "Graphics" },
     { id: "settings", label: "Settings" },
-    { id: "test", label: "Test" },
   ];
 
   function resetIdle() {

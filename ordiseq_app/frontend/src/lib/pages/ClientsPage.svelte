@@ -5,6 +5,7 @@
     sendClipToClient,
     sendPlayModeToClient,
     euclideanToClip,
+    chordsToClip,
     defaultEuclidRow,
     midiNoteName,
     bjorklund,
@@ -13,6 +14,7 @@
     renameStoredConfig,
     type ClientInfo,
     type SequencerType,
+    type SequenceChord,
     type EuclidRow,
     type StepState,
   } from "../clientsStore";
@@ -21,6 +23,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import Dial from "../Dial.svelte";
   import MidiWidget from "../MidiWidget.svelte";
+  import ChordPanel from "../components/ChordPanel.svelte";
 
   let editingId = $state<number | null>(null);
   let editName = $state("");
@@ -28,6 +31,8 @@
   // Per-client sequencer state, keyed by client id
   let sequencerTypes = $state<Record<number, SequencerType>>({});
   let euclideanRows = $state<Record<number, EuclidRow[]>>({});
+  let chordSequences = $state<Record<number, SequenceChord[]>>({});
+  let octaveStarts = $state<Record<number, number>>({});
   let midiInfos = $state<Record<number, MidiInfo>>({});
 
   // Per-client edit program (1-16), controls which program slot the sequencer edits
@@ -52,9 +57,13 @@
         if (stored) {
           sequencerTypes[client.id] = stored.type;
           euclideanRows[client.id] = stored.rows;
+          chordSequences[client.id] = stored.chordSequence ?? [];
+          octaveStarts[client.id] = stored.octaveStart ?? 48;
           playModes[client.id] = stored.noteTrigger ? "note_trigger" : "transport";
           if (stored.type === "euclidean" && stored.rows.length > 0) {
             syncToClient(client.id);
+          } else if (stored.type === "chords" && (stored.chordSequence?.length ?? 0) > 0) {
+            syncChordsToClient(client.id);
           }
           sendPlayModeToClient(client.id, pgm - 1, stored.noteTrigger ?? false);
         }
@@ -108,14 +117,20 @@
     if (stored) {
       sequencerTypes[clientId] = stored.type;
       euclideanRows[clientId] = stored.rows;
+      chordSequences[clientId] = stored.chordSequence ?? [];
+      octaveStarts[clientId] = stored.octaveStart ?? 48;
       playModes[clientId] = stored.noteTrigger ? "note_trigger" : "transport";
       midiInfos[clientId] = undefined as any;
       if (stored.type === "euclidean" && stored.rows.length > 0) {
         syncToClient(clientId);
+      } else if (stored.type === "chords" && (stored.chordSequence?.length ?? 0) > 0) {
+        syncChordsToClient(clientId);
       }
     } else {
       sequencerTypes[clientId] = "none";
       euclideanRows[clientId] = [];
+      chordSequences[clientId] = [];
+      octaveStarts[clientId] = 48;
       playModes[clientId] = "transport";
       midiInfos[clientId] = undefined as any;
     }
@@ -131,9 +146,15 @@
     if (type === "euclidean" && (!euclideanRows[clientId] || euclideanRows[clientId].length === 0)) {
       euclideanRows[clientId] = [defaultEuclidRow()];
     }
+    if (type === "chords" && !chordSequences[clientId]) {
+      chordSequences[clientId] = [];
+      octaveStarts[clientId] = 48;
+    }
     persistConfig(clientId);
     if (type === "euclidean") {
       syncToClient(clientId);
+    } else if (type === "chords") {
+      syncChordsToClient(clientId);
     } else if (type === "none") {
       const pgm = getEditProgram(clientId) - 1;
       sendClipToClient(clientId, { name: "Empty", length_beats: 1, notes: [] }, pgm);
@@ -191,7 +212,11 @@
 
   function debouncedSync(clientId: number) {
     if (syncTimers[clientId]) clearTimeout(syncTimers[clientId]);
-    syncTimers[clientId] = setTimeout(() => syncToClient(clientId), 150);
+    syncTimers[clientId] = setTimeout(() => {
+      const type = getSequencerType(clientId);
+      if (type === "euclidean") syncToClient(clientId);
+      else if (type === "chords") syncChordsToClient(clientId);
+    }, 150);
   }
 
   function persistConfig(clientId: number) {
@@ -199,7 +224,10 @@
     if (name) {
       const pgm = getEditProgram(clientId);
       const noteTrigger = (playModes[clientId] ?? "transport") === "note_trigger";
-      saveConfigForClient(name, sequencerTypes[clientId] ?? "none", euclideanRows[clientId] ?? [], pgm, noteTrigger);
+      saveConfigForClient(
+        name, sequencerTypes[clientId] ?? "none", euclideanRows[clientId] ?? [], pgm, noteTrigger,
+        chordSequences[clientId], octaveStarts[clientId],
+      );
     }
   }
 
@@ -216,6 +244,38 @@
     } catch (e) {
       console.error("Failed to sync clip:", e);
     }
+  }
+
+  async function syncChordsToClient(clientId: number) {
+    const seq = chordSequences[clientId];
+    if (!seq || seq.length === 0) {
+      const pgm = getEditProgram(clientId) - 1;
+      sendClipToClient(clientId, { name: "Empty", length_beats: 1, notes: [] }, pgm);
+      midiInfos[clientId] = undefined as any;
+      persistConfig(clientId);
+      return;
+    }
+    persistConfig(clientId);
+    try {
+      const oct = octaveStarts[clientId] ?? 48;
+      const clip = await chordsToClip(seq, oct);
+      const pgm = getEditProgram(clientId) - 1;
+      await sendClipToClient(clientId, clip, pgm);
+      const result = await invoke<MidiInfo>("clip_to_midi_file", { clip });
+      midiInfos[clientId] = result;
+    } catch (e) {
+      console.error("Failed to sync chord clip:", e);
+    }
+  }
+
+  function handleChordSequenceChange(clientId: number, seq: SequenceChord[]) {
+    chordSequences[clientId] = seq;
+    debouncedSync(clientId);
+  }
+
+  function handleOctaveChange(clientId: number, oct: number) {
+    octaveStarts[clientId] = oct;
+    debouncedSync(clientId);
   }
 
   function getPlayMode(clientId: number): "transport" | "note_trigger" {
@@ -358,6 +418,7 @@
                 >
                   <option value="none">None</option>
                   <option value="euclidean">Euclidean</option>
+                  <option value="chords">Chords</option>
                 </select>
                 <span class="seq-select-spacer"></span>
                 <span class="seq-select-label">Sequencer</span>
@@ -461,6 +522,16 @@
               </div>
             {/if}
 
+            {#if getSequencerType(client.id) === "chords"}
+              <ChordPanel
+                sequence={chordSequences[client.id] ?? []}
+                octaveStart={octaveStarts[client.id] ?? 48}
+                clientId={client.id}
+                onsequencechange={(seq) => handleChordSequenceChange(client.id, seq)}
+                onoctavechange={(oct) => handleOctaveChange(client.id, oct)}
+              />
+            {/if}
+
           </div>
         </div>
       {/each}
@@ -471,7 +542,7 @@
 <style>
   .page {
     padding: 2rem;
-    max-width: 700px;
+    max-width: 900px;
     margin: 0 auto;
   }
 

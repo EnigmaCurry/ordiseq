@@ -1,33 +1,27 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { onDestroy } from "svelte";
-  import type { MidiClip, ClipNote } from "../clientsStore";
-  import Keyboard from "../components/Keyboard.svelte";
-  import ChordSelector from "../components/ChordSelector.svelte";
-  import SequenceTrack from "../components/SequenceTrack.svelte";
+  import type { SequenceChord } from "../clientsStore";
+  import { beatPosition, transportPlaying } from "../transportStore";
+  import Keyboard from "./Keyboard.svelte";
+  import ChordSelector from "./ChordSelector.svelte";
+  import SequenceTrack from "./SequenceTrack.svelte";
 
   const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
   const NOTE_COUNT = 24;
 
-  interface ClientInfo {
-    id: number;
-    name: string;
-    connected: boolean;
+  interface Props {
+    sequence: SequenceChord[];
+    octaveStart: number;
+    clientId: number;
+    onsequencechange: (sequence: SequenceChord[]) => void;
+    onoctavechange: (octaveStart: number) => void;
   }
 
-  interface SequenceChord {
-    id: string;
-    root: number;
-    chordType: string;
-    bars: number;
-    customNotes?: number[];
-    customLabel?: string;
-  }
+  let { sequence, octaveStart, clientId, onsequencechange, onoctavechange }: Props = $props();
 
-  const DRAG_THRESHOLD = 25; // px² (5px movement)
+  const DRAG_THRESHOLD = 25;
 
-  // --- Sequence state ---
-  let sequence: SequenceChord[] = $state([]);
   let nextChordId = 0;
   let dropTargetIndex: number = $state(-1);
   let dropIndicatorLeft: number = $state(0);
@@ -35,13 +29,25 @@
 
   let totalBars: number = $derived(sequence.reduce((sum, c) => sum + c.bars, 0));
 
+  function getActiveChordIndex(beat: number): number {
+    if (sequence.length === 0 || totalBars === 0) return -1;
+    const totalBeats = totalBars * 4;
+    const pos = ((beat % totalBeats) + totalBeats) % totalBeats;
+    let cumulative = 0;
+    for (let i = 0; i < sequence.length; i++) {
+      cumulative += sequence[i].bars * 4;
+      if (pos < cumulative) return i;
+    }
+    return sequence.length - 1;
+  }
+
   // --- Custom mouse drag state ---
   interface DragInfo {
     type: 'new' | 'reorder';
     root: number;
     chordType: string;
     customNotes?: number[];
-    sourceIndex: number; // -1 for new
+    sourceIndex: number;
     startX: number;
     startY: number;
     active: boolean;
@@ -55,15 +61,17 @@
 
   function genId(): string { return `c${nextChordId++}`; }
 
+  function emitSequence(seq: SequenceChord[]) {
+    onsequencechange(seq);
+  }
+
   function removeChord(i: number) {
-    stopSequenceIfPlaying();
-    sequence = sequence.filter((_, idx) => idx !== i);
+    emitSequence(sequence.filter((_, idx) => idx !== i));
   }
 
   function adjustDuration(i: number, delta: number) {
-    stopSequenceIfPlaying();
     const newBars = Math.max(0.5, sequence[i].bars + delta);
-    sequence = sequence.map((c, idx) => idx === i ? { ...c, bars: newBars } : c);
+    emitSequence(sequence.map((c, idx) => idx === i ? { ...c, bars: newBars } : c));
   }
 
   function isOverSequence(cx: number, cy: number): boolean {
@@ -101,7 +109,24 @@
     }
   }
 
+  function cleanupDragListeners() {
+    window.removeEventListener('mousemove', onDragMove);
+    window.removeEventListener('mouseup', onDragEnd);
+  }
+
+  function cancelDrag() {
+    cleanupDragListeners();
+    if (!drag?.active && pendingKeyToggle !== null) {
+      toggleKeyNote(pendingKeyToggle);
+    }
+    pendingKeyToggle = null;
+    dragWasActive = drag?.active ?? false;
+    drag = null;
+    dropTargetIndex = -1;
+  }
+
   function startNewChordDrag(e: MouseEvent, root: number, chordType: string) {
+    cleanupDragListeners();
     const cn = chordType === "Custom" ? [...activeNotes].sort((a, b) => a - b) : undefined;
     drag = { type: 'new', root, chordType, customNotes: cn, sourceIndex: -1, startX: e.clientX, startY: e.clientY, active: false };
     window.addEventListener('mousemove', onDragMove);
@@ -110,6 +135,7 @@
 
   function startReorderDrag(e: MouseEvent, i: number) {
     if ((e.target as HTMLElement).closest('button')) return;
+    cleanupDragListeners();
     const chord = sequence[i];
     drag = { type: 'reorder', root: chord.root, chordType: chord.chordType, sourceIndex: i, startX: e.clientX, startY: e.clientY, active: false };
     window.addEventListener('mousemove', onDragMove);
@@ -118,6 +144,8 @@
 
   function onDragMove(e: MouseEvent) {
     if (!drag) return;
+    // Detect missed mouseup (e.g. mouse left window)
+    if (e.buttons === 0) { cancelDrag(); return; }
     if (!drag.active) {
       const dx = e.clientX - drag.startX;
       const dy = e.clientY - drag.startY;
@@ -138,11 +166,9 @@
   }
 
   function onDragEnd(e: MouseEvent) {
-    window.removeEventListener('mousemove', onDragMove);
-    window.removeEventListener('mouseup', onDragEnd);
+    cleanupDragListeners();
 
     if (drag?.active && isOverSequence(e.clientX, e.clientY)) {
-      stopSequenceIfPlaying();
       const idx = calcDropIndex(e.clientX);
 
       if (drag.type === 'new') {
@@ -151,12 +177,12 @@
           newChord.customNotes = drag.customNotes;
           newChord.customLabel = chordNames[0] || undefined;
         }
-        sequence = [...sequence.slice(0, idx), newChord, ...sequence.slice(idx)];
+        emitSequence([...sequence.slice(0, idx), newChord, ...sequence.slice(idx)]);
       } else if (drag.type === 'reorder' && drag.sourceIndex >= 0) {
         const chord = sequence[drag.sourceIndex];
         const filtered = sequence.filter((_, i) => i !== drag!.sourceIndex);
         const insertAt = idx > drag.sourceIndex ? idx - 1 : idx;
-        sequence = [...filtered.slice(0, insertAt), chord, ...filtered.slice(insertAt)];
+        emitSequence([...filtered.slice(0, insertAt), chord, ...filtered.slice(insertAt)]);
       }
     }
 
@@ -180,33 +206,9 @@
     }
   }
 
-  onDestroy(() => {
-    window.removeEventListener('mousemove', onDragMove);
-    window.removeEventListener('mouseup', onDragEnd);
-  });
+  onDestroy(cleanupDragListeners);
 
-  // --- Existing state ---
-  let octaveStart = $state(48);
-
-  // Client selection
-  let clients: ClientInfo[] = $state([]);
-  let selectedClientId: number | null = $state(null);
-  let pollTimer: ReturnType<typeof setInterval> | null = null;
-
-  async function refreshClients() {
-    clients = await invoke<ClientInfo[]>("get_clients");
-    if (selectedClientId === null || !clients.some((c) => c.id === selectedClientId)) {
-      selectedClientId = clients.length > 0 ? clients[0].id : null;
-    }
-  }
-
-  $effect(() => {
-    refreshClients();
-    pollTimer = setInterval(refreshClients, 2000);
-    return () => { if (pollTimer) clearInterval(pollTimer); };
-  });
-
-  // Selection state
+  // --- Selection state ---
   let selectedRoot: number = $state(0);
   let selectedChordType: string = $state("Major");
   let activeNotes: Set<number> = $state(new Set());
@@ -233,12 +235,16 @@
     });
   });
 
+  function handleKeyMouseDown(e: MouseEvent, midi: number) {
+    pendingKeyToggle = midi;
+    startNewChordDrag(e, selectedRoot, selectedChordType);
+  }
+
   function triggerChord() {
-    if (selectedClientId === null) return;
     if (selectedChordType === "Custom") return;
     const rootMidi = octaveStart + selectedRoot;
     invoke<number[]>("trigger_live_chord", {
-      clientId: selectedClientId,
+      clientId,
       rootMidi,
       chordType: selectedChordType,
     }).then((notes) => {
@@ -246,13 +252,7 @@
     }).catch(() => {});
   }
 
-  function handleKeyMouseDown(e: MouseEvent, midi: number) {
-    pendingKeyToggle = midi;
-    startNewChordDrag(e, selectedRoot, selectedChordType);
-  }
-
   function toggleKeyNote(midi: number) {
-    stopSequenceIfPlaying();
     const newNotes = new Set(activeNotes);
     if (newNotes.has(midi)) {
       newNotes.delete(midi);
@@ -261,142 +261,51 @@
     }
     activeNotes = newNotes;
     selectedChordType = "Custom";
-    if (selectedClientId !== null && newNotes.size > 0) {
+    if (newNotes.size > 0) {
       const notes = [...newNotes].map(n => ({ note: n, channel: 0, velocity: 0.8 }));
-      invoke("send_live_notes", { clientId: selectedClientId, notes, durationBeats: 0.0 });
-    } else if (selectedClientId !== null) {
-      invoke("send_live_notes", { clientId: selectedClientId, notes: [], durationBeats: 0.0 });
+      invoke("send_live_notes", { clientId, notes, durationBeats: 0.0 });
+    } else {
+      invoke("send_live_notes", { clientId, notes: [], durationBeats: 0.0 });
     }
   }
 
   function handleRootMouseDown(e: MouseEvent, i: number) {
-    stopSequenceIfPlaying();
     selectedRoot = i;
     triggerChord();
     startNewChordDrag(e, i, selectedChordType);
   }
 
   function handleChordTypeMouseDown(e: MouseEvent, ct: string) {
-    stopSequenceIfPlaying();
     selectedChordType = ct;
     triggerChord();
     startNewChordDrag(e, selectedRoot, ct);
   }
 
-  function octaveDown() {
-    if (octaveStart > 0) octaveStart -= 12;
+  function doOctaveDown() {
+    if (octaveStart > 0) onoctavechange(octaveStart - 12);
   }
 
-  function octaveUp() {
-    if (octaveStart + NOTE_COUNT < 128) octaveStart += 12;
+  function doOctaveUp() {
+    if (octaveStart + NOTE_COUNT < 128) onoctavechange(octaveStart + 12);
   }
 
   let octaveLabel: string = $derived(`C${Math.floor(octaveStart / 12) - 1}`);
-
-  // --- Sequence playback ---
-  let sequencePlaying: boolean = $state(false);
-  let activeChordIndex: number = $state(-1);
-  let positionTimer: ReturnType<typeof setInterval> | null = null;
-
-  $effect(() => {
-    if (positionTimer) { clearInterval(positionTimer); positionTimer = null; }
-    if (sequencePlaying && selectedClientId !== null) {
-      const clientId = selectedClientId;
-      positionTimer = setInterval(async () => {
-        const beatPos = await invoke<number>("get_sequence_position", { clientId });
-        if (beatPos < 0) { activeChordIndex = -1; return; }
-        let cumBeats = 0;
-        for (let i = 0; i < sequence.length; i++) {
-          cumBeats += sequence[i].bars * 4;
-          if (beatPos < cumBeats) { activeChordIndex = i; return; }
-        }
-        activeChordIndex = 0;
-      }, 150);
-    } else {
-      activeChordIndex = -1;
-    }
-    return () => { if (positionTimer) { clearInterval(positionTimer); positionTimer = null; } };
-  });
-
-  $effect(() => {
-    if (activeChordIndex >= 0 && activeChordIndex < sequence.length) {
-      const chord = sequence[activeChordIndex];
-      selectedRoot = chord.root;
-      selectedChordType = chord.chordType;
-      if (chord.chordType === "Custom" && chord.customNotes) {
-        activeNotes = new Set(chord.customNotes);
-      }
-    }
-  });
-
-  function stopSequenceIfPlaying() {
-    if (sequencePlaying && selectedClientId !== null) {
-      invoke("stop_sequence", { clientId: selectedClientId });
-      sequencePlaying = false;
-    }
-  }
-
-  let prevClientId: number | null = null;
-  $effect(() => {
-    if (selectedClientId !== prevClientId) {
-      prevClientId = selectedClientId;
-      sequencePlaying = false;
-    }
-  });
-
-  async function sequenceToClip(): Promise<MidiClip> {
-    const notes: ClipNote[] = [];
-    let beatPos = 0;
-    for (const chord of sequence) {
-      let chordNotes: number[];
-      if (chord.chordType === "Custom" && chord.customNotes) {
-        chordNotes = chord.customNotes;
-      } else {
-        const rootMidi = octaveStart + chord.root;
-        chordNotes = await invoke("get_chord_notes", { rootMidi, chordType: chord.chordType });
-      }
-      const fullBeats = chord.bars * 4;
-      const durationBeats = fullBeats - 0.25;
-      for (const n of chordNotes) {
-        notes.push({ note: n, channel: 0, velocity: 0.8, start_beats: beatPos, duration_beats: durationBeats });
-      }
-      beatPos += fullBeats;
-    }
-    return { name: "Chord Sequence", length_beats: beatPos, notes };
-  }
-
-  async function toggleSequencePlayback() {
-    if (selectedClientId === null) return;
-    if (sequencePlaying) {
-      await invoke("stop_sequence", { clientId: selectedClientId });
-      sequencePlaying = false;
-    } else {
-      const clip = await sequenceToClip();
-      await invoke("play_sequence", { clientId: selectedClientId, clip });
-      sequencePlaying = true;
-    }
-  }
 </script>
 
-<div class="page">
-  <h1>Test</h1>
-
+<div class="chord-panel">
   <SequenceTrack
     {sequence}
-    {activeChordIndex}
+    activeChordIndex={$transportPlaying ? getActiveChordIndex($beatPosition) : -1}
     {dropTargetIndex}
     {dropIndicatorLeft}
     dragSourceIndex={drag?.type === 'reorder' ? drag.sourceIndex : -1}
     dragActive={drag?.active ?? false}
-    {sequencePlaying}
     {totalBars}
-    {selectedClientId}
     onremove={removeChord}
     onadjustduration={adjustDuration}
     onstartreorderdrag={startReorderDrag}
     onselect={selectSequenceChord}
-    ontoggleplay={toggleSequencePlayback}
-    onclear={() => { stopSequenceIfPlaying(); sequence = []; }}
+    onclear={() => emitSequence([])}
     onbindel={(el) => { sequenceEl = el; }}
   />
 
@@ -410,22 +319,11 @@
           {/if}
         {/if}
       </div>
-      <div class="toolbar-right">
-        <select class="client-select" bind:value={selectedClientId}>
-          {#if clients.length === 0}
-            <option value={null}>No clients</option>
-          {:else}
-            {#each clients as client}
-              <option value={client.id}>{client.name}</option>
-            {/each}
-          {/if}
-        </select>
-        <div class="octave-controls">
-          <span class="octave-label">{octaveLabel}</span>
-          <div class="octave-buttons">
-            <button class="oct-btn" onclick={octaveDown} disabled={octaveStart <= 0}>-</button>
-            <button class="oct-btn" onclick={octaveUp} disabled={octaveStart + NOTE_COUNT >= 128}>+</button>
-          </div>
+      <div class="octave-controls">
+        <span class="octave-label">{octaveLabel}</span>
+        <div class="octave-buttons">
+          <button class="oct-btn" onclick={doOctaveDown} disabled={octaveStart <= 0}>-</button>
+          <button class="oct-btn" onclick={doOctaveUp} disabled={octaveStart + NOTE_COUNT >= 128}>+</button>
         </div>
       </div>
     </div>
@@ -446,6 +344,7 @@
   </div>
 </div>
 
+<!-- Drag ghost floating element -->
 {#if drag?.active}
   <div class="drag-ghost" style="left: {ghostX}px; top: {ghostY}px">
     {drag.chordType === "Custom" ? (chordNames[0] || "Custom") : `${NOTE_NAMES[drag.root]} ${drag.chordType}`}
@@ -453,14 +352,8 @@
 {/if}
 
 <style>
-  .page {
+  .chord-panel {
     text-align: center;
-  }
-
-  h1 {
-    font-size: 2.5rem;
-    color: rgb(var(--color-1));
-    margin-bottom: 0.25rem;
   }
 
   /* ===== Drag Ghost ===== */
@@ -480,7 +373,7 @@
     backdrop-filter: blur(4px);
   }
 
-  /* ===== Chord Selector Panel ===== */
+  /* ===== Panel ===== */
   .panel {
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(var(--color-3), 0.25);
@@ -516,26 +409,6 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-
-  .toolbar-right {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .client-select {
-    padding: 4px 6px;
-    font-size: 0.75rem;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.1);
-    color: rgb(var(--color-3));
-    border: 1px solid rgba(var(--color-3), 0.3);
-    max-width: 150px;
-  }
-
-  .client-select:focus {
-    outline: 1px solid rgb(var(--color-1));
   }
 
   .octave-controls {

@@ -38,7 +38,16 @@ export interface EuclidRow {
   manualPattern?: StepState[];  // present = manual edit mode
 }
 
-export type SequencerType = "none" | "euclidean";
+export type SequencerType = "none" | "euclidean" | "chords";
+
+export interface SequenceChord {
+  id: string;
+  root: number;
+  chordType: string;
+  bars: number;
+  customNotes?: number[];
+  customLabel?: string;
+}
 
 export interface SequencerConfig {
   type: SequencerType;
@@ -210,6 +219,29 @@ export function defaultEuclidRow(note: number = 36): EuclidRow {
   return { note, length: 16, hits: 4, rotation: 0, accents: 0, velocity: 100, accentVelocity: 127 };
 }
 
+/** Generate a MidiClip from a chord sequence. Async because non-custom chords
+ *  require a backend call to resolve chord notes. */
+export async function chordsToClip(sequence: SequenceChord[], octaveStart: number): Promise<MidiClip> {
+  const notes: ClipNote[] = [];
+  let beatPos = 0;
+  for (const chord of sequence) {
+    let chordNotes: number[];
+    if (chord.chordType === "Custom" && chord.customNotes) {
+      chordNotes = chord.customNotes;
+    } else {
+      const rootMidi = octaveStart + chord.root;
+      chordNotes = await invoke("get_chord_notes", { rootMidi, chordType: chord.chordType });
+    }
+    const fullBeats = chord.bars * 4;
+    const durationBeats = fullBeats - 0.25;
+    for (const n of chordNotes) {
+      notes.push({ note: n, channel: 0, velocity: 0.8, start_beats: beatPos, duration_beats: durationBeats });
+    }
+    beatPos += fullBeats;
+  }
+  return { name: "Chord Sequence", length_beats: beatPos, notes };
+}
+
 // --- Persistence by client name ---
 
 const STORAGE_KEY = "sequencer-configs";
@@ -218,6 +250,8 @@ interface StoredConfig {
   type: SequencerType;
   rows: EuclidRow[];
   noteTrigger?: boolean;
+  chordSequence?: SequenceChord[];
+  octaveStart?: number;
 }
 
 function loadAllConfigs(): Record<string, StoredConfig> {
@@ -263,9 +297,12 @@ export function loadConfigForClient(name: string, program: number = 1): StoredCo
   return config;
 }
 
-export function saveConfigForClient(name: string, type: SequencerType, rows: EuclidRow[], program: number = 1, noteTrigger: boolean = false) {
+export function saveConfigForClient(
+  name: string, type: SequencerType, rows: EuclidRow[], program: number = 1, noteTrigger: boolean = false,
+  chordSequence?: SequenceChord[], octaveStart?: number,
+) {
   const all = loadAllConfigs();
-  all[configKey(name, program)] = { type, rows, noteTrigger };
+  all[configKey(name, program)] = { type, rows, noteTrigger, chordSequence, octaveStart };
   saveAllConfigs(all);
 }
 

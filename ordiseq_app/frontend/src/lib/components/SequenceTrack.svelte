@@ -18,23 +18,20 @@
     dropIndicatorLeft: number;
     dragSourceIndex: number;
     dragActive: boolean;
-    sequencePlaying: boolean;
     totalBars: number;
-    selectedClientId: number | null;
     onremove: (index: number) => void;
     onadjustduration: (index: number, delta: number) => void;
     onstartreorderdrag: (e: MouseEvent, index: number) => void;
     onselect: (index: number) => void;
-    ontoggleplay: () => void;
     onclear: () => void;
     onbindel: (el: HTMLElement) => void;
   }
 
   let {
     sequence, activeChordIndex, dropTargetIndex, dropIndicatorLeft,
-    dragSourceIndex, dragActive, sequencePlaying, totalBars, selectedClientId,
+    dragSourceIndex, dragActive, totalBars,
     onremove, onadjustduration, onstartreorderdrag, onselect,
-    ontoggleplay, onclear, onbindel,
+    onclear, onbindel,
   }: Props = $props();
 
   let sequenceEl: HTMLElement | undefined = $state(undefined);
@@ -49,12 +46,6 @@
     <span class="sequence-title">Sequence</span>
     {#if sequence.length > 0}
       <span class="seq-info">{totalBars} bar{totalBars !== 1 ? 's' : ''}</span>
-      <button
-        class="seq-play-btn"
-        class:playing={sequencePlaying}
-        disabled={selectedClientId === null}
-        onclick={ontoggleplay}
-      >{sequencePlaying ? "Stop" : "Play"}</button>
       <button class="clear-seq-btn" onclick={onclear}>Clear</button>
     {/if}
   </div>
@@ -116,33 +107,8 @@
     color: rgba(var(--color-3), 0.5);
   }
 
-  .seq-play-btn {
-    margin-left: auto;
-    padding: 2px 10px;
-    font-size: 0.65rem;
-    font-weight: 700;
-    border-radius: 3px;
-    background: rgba(var(--color-1), 0.2);
-    color: rgb(var(--color-1));
-    border: 1px solid rgba(var(--color-1), 0.4);
-    cursor: pointer;
-  }
-
-  .seq-play-btn:hover:not(:disabled) {
-    background: rgba(var(--color-1), 0.35);
-  }
-
-  .seq-play-btn.playing {
-    background: rgba(var(--color-1), 0.6);
-    color: #fff;
-  }
-
-  .seq-play-btn:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-  }
-
   .clear-seq-btn {
+    margin-left: auto;
     padding: 2px 8px;
     font-size: 0.65rem;
     border-radius: 3px;

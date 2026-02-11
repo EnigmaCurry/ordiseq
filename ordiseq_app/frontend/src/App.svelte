@@ -1,7 +1,6 @@
 <script lang="ts">
   import Navigation from "./lib/Navigation.svelte";
   import MainPage from "./lib/pages/MainPage.svelte";
-  import TestPage from "./lib/pages/TestPage.svelte";
   import SettingsPage from "./lib/pages/SettingsPage.svelte";
   import ClientsPage from "./lib/pages/ClientsPage.svelte";
   import { currentPage } from "./lib/router";
@@ -53,8 +52,6 @@
 <main>
   {#if $currentPage === "graphics"}
     <MainPage />
-  {:else if $currentPage === "test"}
-    <TestPage />
   {:else if $currentPage === "settings"}
     <SettingsPage />
   {:else if $currentPage === "clients"}

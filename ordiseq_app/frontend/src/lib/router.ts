@@ -1,5 +1,5 @@
 import { writable } from "svelte/store";
 
-export type Page = "graphics" | "test" | "settings" | "clients";
+export type Page = "graphics" | "settings" | "clients";
 
-export const currentPage = writable<Page>("test");
+export const currentPage = writable<Page>("clients");
