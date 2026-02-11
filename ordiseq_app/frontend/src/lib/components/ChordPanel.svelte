@@ -14,11 +14,12 @@
     sequence: SequenceChord[];
     octaveStart: number;
     clientId: number;
+    seqBeatPosition: number;
     onsequencechange: (sequence: SequenceChord[]) => void;
     onoctavechange: (octaveStart: number) => void;
   }
 
-  let { sequence, octaveStart, clientId, onsequencechange, onoctavechange }: Props = $props();
+  let { sequence, octaveStart, clientId, seqBeatPosition, onsequencechange, onoctavechange }: Props = $props();
 
   const DRAG_THRESHOLD = 25;
 
@@ -27,8 +28,16 @@
   let replaceTargetIndex: number = $state(-1);
   let dropIndicatorLeft: number = $state(0);
   let sequenceEl: HTMLElement | undefined = $state(undefined);
+  let selectedSeqIndex: number = $state(-1);
+
+  const BAR_SIZES = [0.125, 0.25, 0.5, 1, 2, 4];
 
   let totalBars: number = $derived(sequence.reduce((sum, c) => sum + c.bars, 0));
+  let selectedSeqChord = $derived(selectedSeqIndex >= 0 && selectedSeqIndex < sequence.length ? sequence[selectedSeqIndex] : null);
+
+  $effect(() => {
+    if (selectedSeqIndex >= sequence.length) selectedSeqIndex = -1;
+  });
 
   function getActiveChordIndex(beat: number): number {
     if (sequence.length === 0 || totalBars === 0) return -1;
@@ -66,13 +75,61 @@
     onsequencechange(seq);
   }
 
-  function removeChord(i: number) {
-    emitSequence(sequence.filter((_, idx) => idx !== i));
+  function deleteSelectedChord() {
+    if (selectedSeqIndex < 0) return;
+    emitSequence(sequence.filter((_, i) => i !== selectedSeqIndex));
+    selectedSeqIndex = -1;
   }
 
-  function adjustDuration(i: number, delta: number) {
-    const newBars = Math.max(0.25, sequence[i].bars + delta);
-    emitSequence(sequence.map((c, idx) => idx === i ? { ...c, bars: newBars } : c));
+  function growSelectedChord() {
+    if (selectedSeqIndex < 0 || selectedSeqIndex >= sequence.length) return;
+    const cur = sequence[selectedSeqIndex].bars;
+    const next = BAR_SIZES.find(d => d > cur);
+    if (!next) return;
+    emitSequence(sequence.map((c, i) => i === selectedSeqIndex ? { ...c, bars: next } : c));
+  }
+
+  function shrinkSelectedChord() {
+    if (selectedSeqIndex < 0 || selectedSeqIndex >= sequence.length) return;
+    const cur = sequence[selectedSeqIndex].bars;
+    const prev = [...BAR_SIZES].reverse().find(d => d < cur);
+    if (!prev) return;
+    emitSequence(sequence.map((c, i) => i === selectedSeqIndex ? { ...c, bars: prev } : c));
+  }
+
+  function invertSelectedUp() {
+    if (activeNotes.size === 0) return;
+    const notes = [...activeNotes].sort((a, b) => a - b);
+    const lowest = notes.shift()!;
+    notes.push(lowest + 12);
+    applyInvertedNotes(notes);
+  }
+
+  function invertSelectedDown() {
+    if (activeNotes.size === 0) return;
+    const notes = [...activeNotes].sort((a, b) => a - b);
+    const highest = notes.pop()!;
+    notes.unshift(highest - 12);
+    applyInvertedNotes(notes);
+  }
+
+  function applyInvertedNotes(notes: number[]) {
+    activeNotes = new Set(notes);
+    selectedChordType = "Custom";
+    const liveNotes = notes.map(n => ({ note: n, channel: 0, velocity: 0.8 }));
+    invoke("send_live_notes", { clientId, notes: liveNotes, durationBeats: 0.0 });
+    invoke<string[]>("detect_chord", { midiNotes: notes }).then(names => {
+      const label = names[0] || undefined;
+      if (selectedSeqIndex >= 0 && selectedSeqIndex < sequence.length) {
+        const updated: SequenceChord = {
+          ...sequence[selectedSeqIndex],
+          chordType: "Custom",
+          customNotes: notes,
+          customLabel: label,
+        };
+        emitSequence(sequence.map((c, i) => i === selectedSeqIndex ? updated : c));
+      }
+    });
   }
 
   function isOverSequence(cx: number, cy: number): boolean {
@@ -267,6 +324,7 @@
 
   function selectSequenceChord(i: number) {
     if (dragWasActive) { dragWasActive = false; return; }
+    selectedSeqIndex = i;
     const chord = sequence[i];
     selectedRoot = chord.root;
     selectedChordType = chord.chordType;
@@ -332,6 +390,7 @@
   }
 
   function toggleKeyNote(midi: number) {
+    selectedSeqIndex = -1;
     const newNotes = new Set(activeNotes);
     if (newNotes.has(midi)) {
       newNotes.delete(midi);
@@ -349,12 +408,14 @@
   }
 
   function handleRootMouseDown(e: MouseEvent, i: number) {
+    selectedSeqIndex = -1;
     selectedRoot = i;
     triggerChord();
     startNewChordDrag(e, i, selectedChordType);
   }
 
   function handleChordTypeMouseDown(e: MouseEvent, ct: string) {
+    selectedSeqIndex = -1;
     selectedChordType = ct;
     triggerChord();
     startNewChordDrag(e, selectedRoot, ct);
@@ -370,14 +431,19 @@
 
   let octaveLabel: string = $derived(`C${Math.floor(octaveStart / 12) - 1}`);
 
+  // Active chord from either DAW transport or one-shot sequence playback
+  let seqPlaying = $derived(seqBeatPosition >= 0);
+  let playingBeat = $derived($transportPlaying ? $beatPosition : seqPlaying ? seqBeatPosition : -1);
+  let playingActiveIndex = $derived(playingBeat >= 0 ? getActiveChordIndex(playingBeat) : -1);
+
   // Sync chord chooser to the currently playing chord
   let lastPlaybackChordIndex = -1;
   $effect(() => {
-    if (!$transportPlaying || sequence.length === 0) {
+    if ((!$transportPlaying && !seqPlaying) || sequence.length === 0) {
       lastPlaybackChordIndex = -1;
       return;
     }
-    const idx = getActiveChordIndex($beatPosition);
+    const idx = playingActiveIndex;
     if (idx < 0 || idx === lastPlaybackChordIndex) return;
     lastPlaybackChordIndex = idx;
     const chord = sequence[idx];
@@ -392,20 +458,36 @@
 <div class="chord-panel">
   <SequenceTrack
     {sequence}
-    activeChordIndex={$transportPlaying ? getActiveChordIndex($beatPosition) : -1}
+    activeChordIndex={playingActiveIndex}
     {dropTargetIndex}
     {replaceTargetIndex}
     {dropIndicatorLeft}
+    {selectedSeqIndex}
     dragSourceIndex={drag?.type === 'reorder' ? drag.sourceIndex : -1}
     dragActive={drag?.active ?? false}
     {totalBars}
-    onremove={removeChord}
-    onadjustduration={adjustDuration}
     onstartreorderdrag={startReorderDrag}
     onselect={selectSequenceChord}
-    onclear={() => emitSequence([])}
+    onclear={() => { selectedSeqIndex = -1; emitSequence([]); }}
     onbindel={(el) => { sequenceEl = el; }}
   />
+
+  {#if sequence.length > 0}
+    <div class="seq-toolbar">
+      <div class="tb-group">
+        <span class="tb-label">Duration</span>
+        <button class="tb-btn" onclick={shrinkSelectedChord} disabled={!selectedSeqChord || selectedSeqChord.bars <= BAR_SIZES[0]}>−</button>
+        <span class="tb-value">{selectedSeqChord ? selectedSeqChord.bars : '—'}</span>
+        <button class="tb-btn" onclick={growSelectedChord} disabled={!selectedSeqChord || selectedSeqChord.bars >= BAR_SIZES[BAR_SIZES.length - 1]}>+</button>
+      </div>
+      <div class="tb-group">
+        <span class="tb-label">Inversion</span>
+        <button class="tb-btn" onclick={invertSelectedDown} disabled={activeNotes.size === 0}>↓</button>
+        <button class="tb-btn" onclick={invertSelectedUp} disabled={activeNotes.size === 0}>↑</button>
+      </div>
+      <button class="tb-btn tb-delete" onclick={deleteSelectedChord} disabled={!selectedSeqChord}>Delete</button>
+    </div>
+  {/if}
 
   <div class="panel">
     <div class="toolbar">
@@ -469,6 +551,69 @@
     border-radius: 4px;
     white-space: nowrap;
     backdrop-filter: blur(4px);
+  }
+
+  /* ===== Sequence Toolbar ===== */
+  .seq-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 8px;
+    margin-bottom: 12px;
+  }
+
+  .tb-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .tb-label {
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: rgba(var(--color-3), 0.5);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-right: 2px;
+  }
+
+  .tb-value {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: rgba(var(--color-3), 0.7);
+    min-width: 28px;
+    text-align: center;
+  }
+
+  .tb-btn {
+    padding: 3px 8px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    border-radius: 3px;
+    background: rgba(var(--color-3), 0.12);
+    color: rgb(var(--color-3));
+    border: 1px solid rgba(var(--color-3), 0.2);
+    cursor: pointer;
+  }
+
+  .tb-btn:hover:not(:disabled) {
+    background: rgba(var(--color-3), 0.25);
+  }
+
+  .tb-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+
+  .tb-delete {
+    margin-left: auto;
+    background: rgba(255, 80, 80, 0.1);
+    color: #ff6666;
+    border-color: rgba(255, 80, 80, 0.25);
+  }
+
+  .tb-delete:hover:not(:disabled) {
+    background: rgba(255, 80, 80, 0.25);
   }
 
   /* ===== Panel ===== */

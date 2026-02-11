@@ -17,11 +17,10 @@
     dropTargetIndex: number;
     replaceTargetIndex: number;
     dropIndicatorLeft: number;
+    selectedSeqIndex: number;
     dragSourceIndex: number;
     dragActive: boolean;
     totalBars: number;
-    onremove: (index: number) => void;
-    onadjustduration: (index: number, delta: number) => void;
     onstartreorderdrag: (e: MouseEvent, index: number) => void;
     onselect: (index: number) => void;
     onclear: () => void;
@@ -30,9 +29,8 @@
 
   let {
     sequence, activeChordIndex, dropTargetIndex, replaceTargetIndex, dropIndicatorLeft,
-    dragSourceIndex, dragActive, totalBars,
-    onremove, onadjustduration, onstartreorderdrag, onselect,
-    onclear, onbindel,
+    selectedSeqIndex, dragSourceIndex, dragActive, totalBars,
+    onstartreorderdrag, onselect, onclear, onbindel,
   }: Props = $props();
 
   let sequenceEl: HTMLElement | undefined = $state(undefined);
@@ -64,17 +62,12 @@
           class:dragging={dragActive && dragSourceIndex === i}
           class:playing-chord={activeChordIndex === i}
           class:replace-target={replaceTargetIndex === i}
+          class:selected-chord={selectedSeqIndex === i}
           onmousedown={(e) => onstartreorderdrag(e, i)}
           onclick={() => onselect(i)}
           style="width: {chord.bars * BAR_WIDTH}px"
         >
-          <button class="seq-remove" onclick={() => onremove(i)}>×</button>
           <div class="seq-chord-name">{chord.chordType === "Custom" ? (chord.customLabel || "Custom") : `${NOTE_NAMES[chord.root]} ${chord.chordType}`}</div>
-          <div class="seq-duration">
-            <button class="dur-btn" onclick={() => onadjustduration(i, -0.5)} disabled={chord.bars <= 0.25}>-</button>
-            <span class="dur-label">{chord.bars}</span>
-            <button class="dur-btn" onclick={() => onadjustduration(i, 0.5)}>+</button>
-          </div>
         </div>
       {/each}
     {/if}
@@ -195,74 +188,15 @@
     outline: 2px solid rgba(var(--color-1), 0.7);
   }
 
+  .seq-chord.selected-chord {
+    outline: 2px solid rgba(var(--color-3), 0.6);
+  }
+
   .seq-chord-name {
     font-size: 0.8rem;
     font-weight: 700;
     color: rgb(var(--color-2));
     white-space: nowrap;
-  }
-
-  .seq-duration {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .dur-btn {
-    width: 20px;
-    height: 20px;
-    padding: 0;
-    font-size: 0.75rem;
-    font-weight: 700;
-    line-height: 1;
-    border-radius: 3px;
-    background: rgba(var(--color-3), 0.15);
-    color: rgb(var(--color-3));
-    border: 1px solid rgba(var(--color-3), 0.2);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .dur-btn:hover:not(:disabled) {
-    background: rgba(var(--color-3), 0.3);
-  }
-
-  .dur-btn:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-  }
-
-  .dur-label {
-    font-size: 0.65rem;
-    color: rgba(var(--color-3), 0.6);
-    min-width: 16px;
-    text-align: center;
-  }
-
-  .seq-remove {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    width: 16px;
-    height: 16px;
-    padding: 0;
-    font-size: 0.7rem;
-    line-height: 1;
-    background: transparent;
-    color: rgba(var(--color-3), 0.3);
-    border: none;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 2px;
-  }
-
-  .seq-remove:hover {
-    background: rgba(255, 0, 0, 0.2);
-    color: #ff6666;
   }
 
   .drop-indicator {

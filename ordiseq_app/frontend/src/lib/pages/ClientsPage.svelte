@@ -18,7 +18,8 @@
     type EuclidRow,
     type StepState,
   } from "../clientsStore";
-  import { syncState, beatPosition, transportPlaying } from "../transportStore";
+  import { get } from "svelte/store";
+  import { syncState, beatPosition, transportPlaying, transportBpm } from "../transportStore";
   import type { MidiInfo } from "../types";
   import { invoke } from "@tauri-apps/api/core";
   import Dial from "../Dial.svelte";
@@ -34,6 +35,32 @@
   let chordSequences = $state<Record<number, SequenceChord[]>>({});
   let octaveStarts = $state<Record<number, number>>({});
   let midiInfos = $state<Record<number, MidiInfo>>({});
+
+  // Per-client sequence playback position (beat position, -1 = not playing)
+  let seqPositions = $state<Record<number, number>>({});
+  let seqPollTimers: Record<number, ReturnType<typeof setInterval>> = {};
+
+  function startSeqPositionPoll(clientId: number) {
+    stopSeqPositionPoll(clientId);
+    seqPositions[clientId] = 0;
+    seqPollTimers[clientId] = setInterval(async () => {
+      try {
+        const pos = await invoke<number>("get_sequence_position", { clientId });
+        seqPositions[clientId] = pos;
+        if (pos < 0) stopSeqPositionPoll(clientId);
+      } catch {
+        stopSeqPositionPoll(clientId);
+      }
+    }, 100);
+  }
+
+  function stopSeqPositionPoll(clientId: number) {
+    if (seqPollTimers[clientId]) {
+      clearInterval(seqPollTimers[clientId]);
+      delete seqPollTimers[clientId];
+    }
+    seqPositions[clientId] = -1;
+  }
 
   // Per-client edit program (1-16), controls which program slot the sequencer edits
   let editPrograms = $state<Record<number, number>>({});
@@ -278,6 +305,23 @@
     debouncedSync(clientId);
   }
 
+  async function playSequenceForClient(clientId: number): Promise<number> {
+    const seq = chordSequences[clientId];
+    const oct = octaveStarts[clientId] ?? 48;
+    if (!seq || seq.length === 0) return 0;
+    const clip = await chordsToClip(seq, oct);
+    await invoke("play_sequence", { clientId, clip });
+    startSeqPositionPoll(clientId);
+    const bpm = get(transportBpm) || 120;
+    const totalBars = seq.reduce((sum, c) => sum + c.bars, 0);
+    return totalBars * 4 * (60000 / bpm);
+  }
+
+  async function stopSequenceForClient(clientId: number): Promise<void> {
+    await invoke("stop_sequence", { clientId });
+    stopSeqPositionPoll(clientId);
+  }
+
   function getPlayMode(clientId: number): "transport" | "note_trigger" {
     return playModes[clientId] ?? "transport";
   }
@@ -438,7 +482,11 @@
               </div>
               {#if midiInfos[client.id]}
                 <div class="midi-drag-inline">
-                  <MidiWidget midiInfo={midiInfos[client.id]} compact />
+                  <MidiWidget midiInfo={midiInfos[client.id]} compact
+                    transportPlaying={client.playing}
+                    onplay={seqType === "chords" ? () => playSequenceForClient(client.id) : undefined}
+                    onstop={seqType === "chords" ? () => stopSequenceForClient(client.id) : undefined}
+                  />
                   <span class="seq-select-spacer"></span>
                   <span class="midi-drag-label">{seqType === "chords" ? "Drag clip to export" : "Drag to export 2x loop"}</span>
                 </div>
@@ -528,6 +576,7 @@
                 sequence={chordSequences[client.id] ?? []}
                 octaveStart={octaveStarts[client.id] ?? 48}
                 clientId={client.id}
+                seqBeatPosition={seqPositions[client.id] ?? -1}
                 onsequencechange={(seq) => handleChordSequenceChange(client.id, seq)}
                 onoctavechange={(oct) => handleOctaveChange(client.id, oct)}
               />

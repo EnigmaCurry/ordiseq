@@ -334,7 +334,11 @@ impl OrdiseqPlug {
                 }
                 AppMessage::SequenceStop => {
                     self.sequence_playing = false;
-                    // Kill existing sequence notes (will be handled in process)
+                    if let Some(tx) = &self.ws_outbox {
+                        let _ = tx.try_send(PluginMessage::SequencePosition {
+                            beat_position: -1.0,
+                        });
+                    }
                 }
                 AppMessage::Ping | AppMessage::StartSync | AppMessage::StopSync => {
                     // Handled on WS thread, no action needed here
@@ -797,10 +801,8 @@ impl Plugin for OrdiseqPlug {
                             seq_processed += chunk;
                             self.seq_samples_elapsed += chunk;
 
-                            // Loop wrap: kill remaining sequence notes
-                            if self.seq_samples_elapsed % seq_clip_samples == 0
-                                && !self.seq_active_notes.is_empty()
-                            {
+                            // One-shot: stop at clip end, kill remaining notes
+                            if self.seq_samples_elapsed % seq_clip_samples == 0 {
                                 let timing = seq_processed.min(buf_len - 1) as u32;
                                 for note in self.seq_active_notes.drain(..) {
                                     context.send_event(NoteEvent::NoteOff {
@@ -811,6 +813,13 @@ impl Plugin for OrdiseqPlug {
                                         velocity: 0.0,
                                     });
                                 }
+                                self.sequence_playing = false;
+                                if let Some(tx) = &self.ws_outbox {
+                                    let _ = tx.try_send(PluginMessage::SequencePosition {
+                                        beat_position: -1.0,
+                                    });
+                                }
+                                break;
                             }
                         }
 

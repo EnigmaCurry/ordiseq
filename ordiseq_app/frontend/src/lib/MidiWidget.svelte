@@ -4,9 +4,16 @@
   import { resolveResource } from "@tauri-apps/api/path";
   import { invoke } from "@tauri-apps/api/core";
 
-  let { midiInfo, compact = false }: { midiInfo: MidiInfo; compact?: boolean } = $props();
+  let { midiInfo, compact = false, onplay, onstop, transportPlaying = false }: {
+    midiInfo: MidiInfo;
+    compact?: boolean;
+    onplay?: () => Promise<number>;
+    onstop?: () => Promise<void>;
+    transportPlaying?: boolean;
+  } = $props();
   let error = $state("");
   let isPlaying = $state(false);
+  let autoStopTimer: ReturnType<typeof setTimeout> | null = null;
 
   async function handleMouseDown(event: MouseEvent) {
     event.preventDefault();
@@ -25,17 +32,28 @@
   async function handlePlay() {
     error = "";
     if (isPlaying) {
+      if (autoStopTimer) { clearTimeout(autoStopTimer); autoStopTimer = null; }
       try {
-        await invoke("stop_midi");
+        if (onstop) {
+          await onstop();
+        } else {
+          await invoke("stop_midi");
+        }
         isPlaying = false;
       } catch (e) {
         error = String(e);
       }
     } else {
       try {
-        await invoke("play_midi", { params: { midi_path: midiInfo.path } });
-        isPlaying = true;
-        pollPlaybackStatus();
+        if (onplay) {
+          const durationMs = await onplay();
+          isPlaying = true;
+          autoStopTimer = setTimeout(() => { isPlaying = false; autoStopTimer = null; }, durationMs + 500);
+        } else {
+          await invoke("play_midi", { params: { midi_path: midiInfo.path } });
+          isPlaying = true;
+          pollPlaybackStatus();
+        }
       } catch (e) {
         error = String(e);
       }
@@ -66,8 +84,10 @@
     <button
       class="compact-play"
       class:playing={isPlaying}
+      disabled={transportPlaying && !isPlaying}
+      onmousedown={(e) => e.stopPropagation()}
       onclick={(e) => { e.stopPropagation(); handlePlay(); }}
-      title={isPlaying ? "Stop" : "Play"}
+      title={transportPlaying && !isPlaying ? "Stop DAW transport first" : isPlaying ? "Stop" : "Play"}
     >
       {#if isPlaying}
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
