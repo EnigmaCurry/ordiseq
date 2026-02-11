@@ -71,7 +71,7 @@
   }
 
   function adjustDuration(i: number, delta: number) {
-    const newBars = Math.max(0.5, sequence[i].bars + delta);
+    const newBars = Math.max(0.25, sequence[i].bars + delta);
     emitSequence(sequence.map((c, idx) => idx === i ? { ...c, bars: newBars } : c));
   }
 
@@ -124,11 +124,14 @@
     }
   }
 
+  function blockNativeDrag(e: Event) { e.preventDefault(); }
+
   function cleanupDragListeners() {
-    window.removeEventListener('mousemove', onDragMove);
-    window.removeEventListener('mouseup', onDragEnd);
+    window.removeEventListener('pointermove', onDragMove);
+    window.removeEventListener('pointerup', onDragEnd);
     window.removeEventListener('blur', abortDrag);
     window.removeEventListener('pointercancel', abortDrag);
+    window.removeEventListener('dragstart', blockNativeDrag, true);
   }
 
   function abortDrag() {
@@ -152,10 +155,11 @@
   }
 
   function addDragListeners() {
-    window.addEventListener('mousemove', onDragMove);
-    window.addEventListener('mouseup', onDragEnd);
+    window.addEventListener('pointermove', onDragMove);
+    window.addEventListener('pointerup', onDragEnd);
     window.addEventListener('blur', abortDrag);
     window.addEventListener('pointercancel', abortDrag);
+    window.addEventListener('dragstart', blockNativeDrag, true);
   }
 
   function startNewChordDrag(e: MouseEvent, root: number, chordType: string) {

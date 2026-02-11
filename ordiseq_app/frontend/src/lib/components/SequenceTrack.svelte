@@ -71,7 +71,7 @@
           <button class="seq-remove" onclick={() => onremove(i)}>×</button>
           <div class="seq-chord-name">{chord.chordType === "Custom" ? (chord.customLabel || "Custom") : `${NOTE_NAMES[chord.root]} ${chord.chordType}`}</div>
           <div class="seq-duration">
-            <button class="dur-btn" onclick={() => onadjustduration(i, -0.5)} disabled={chord.bars <= 0.5}>-</button>
+            <button class="dur-btn" onclick={() => onadjustduration(i, -0.5)} disabled={chord.bars <= 0.25}>-</button>
             <span class="dur-label">{chord.bars}</span>
             <button class="dur-btn" onclick={() => onadjustduration(i, 0.5)}>+</button>
           </div>
