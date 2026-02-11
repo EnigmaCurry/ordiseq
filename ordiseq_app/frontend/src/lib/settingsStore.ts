@@ -2,6 +2,7 @@ import { load } from "@tauri-apps/plugin-store";
 
 export interface ShaderSettings {
   selectedShader: string;
+  colorTheme: string;
   uniforms: {
     pitch: number;
     speed: number;
@@ -26,6 +27,7 @@ const LISTEN_PORT_KEY = "listenPort";
 
 const defaultSettings: ShaderSettings = {
   selectedShader: "plasma",
+  colorTheme: "synthwave",
   uniforms: {
     pitch: 0.0,
     speed: 0.02,
@@ -34,8 +36,8 @@ const defaultSettings: ShaderSettings = {
     overlay: 0.9,
     color1: "#ff1493",
     color2: "#00ffde",
-    color3: "#bd93f9",
-    color4: "#50fa7b",
+    color3: "#b794f6",
+    color4: "#1a1a2e",
   },
   animationEnabled: true,
 };

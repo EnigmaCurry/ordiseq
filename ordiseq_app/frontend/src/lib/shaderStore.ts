@@ -44,8 +44,8 @@ const defaultConfig: ShaderConfig = {
     u_playing: 0.0,
     u_color1: [1.0, 0.08, 0.58],   // Hot pink
     u_color2: [0.0, 1.0, 0.87],    // Cyan
-    u_color3: [0.74, 0.58, 0.98],  // Purple
-    u_color4: [0.31, 0.98, 0.48],  // Green
+    u_color3: [0.72, 0.58, 0.96],  // Soft lavender
+    u_color4: [0.10, 0.10, 0.18],  // Deep navy
   },
 };
 
@@ -187,6 +187,33 @@ function rgbToHex(rgb: number[]): string {
 // Track which shader is currently selected by name
 export const selectedShaderName = writable<string>("plasma");
 
+// Color theme presets
+export interface ColorTheme {
+  label: string;
+  color1: string;
+  color2: string;
+  color3: string;
+  color4: string;
+}
+
+// Color roles:
+//   color1 = primary text & accents (headings, button text, slider thumbs)
+//   color2 = secondary text (values, links, info)
+//   color3 = tertiary (labels, borders, section headers) - used at various opacities
+//   color4 = backgrounds (buttons, selects, inputs) - color1 must read clearly on this
+export const colorThemes: Record<string, ColorTheme> = {
+  synthwave:  { label: "Synthwave",   color1: "#ff1493", color2: "#00ffde", color3: "#b794f6", color4: "#1a1a2e" },
+  sunset:     { label: "Sunset",      color1: "#ffb347", color2: "#ff6b6b", color3: "#c77dba", color4: "#2d1b3d" },
+  miami:      { label: "Miami Vice",  color1: "#f0c4e0", color2: "#4ecdc4", color3: "#a78bba", color4: "#1a3a4a" },
+  outrun:     { label: "Outrun",      color1: "#ff6ec7", color2: "#7b68ee", color3: "#b8a9c9", color4: "#0d0221" },
+  vapor:      { label: "Vaporwave",   color1: "#ff71ce", color2: "#01cdfe", color3: "#b967ff", color4: "#1b1235" },
+  neon:       { label: "Neon",        color1: "#39ff14", color2: "#00d4ff", color3: "#ff5e5e", color4: "#0a0a0a" },
+  midnight:   { label: "Midnight",    color1: "#e0e0e0", color2: "#6eb5ff", color3: "#8b7ec8", color4: "#0f1729" },
+  monochrome: { label: "Monochrome",  color1: "#e0e0e0", color2: "#a0a0a0", color3: "#707070", color4: "#1a1a1a" },
+};
+
+export const selectedColorTheme = writable<string>("synthwave");
+
 /**
  * Initialize settings from persistent storage
  */
@@ -197,6 +224,7 @@ export async function initializeSettings(): Promise<void> {
     // Apply shader
     const shader = exampleShaders[settings.selectedShader] || plasmaShader;
     selectedShaderName.set(settings.selectedShader);
+    selectedColorTheme.set(settings.colorTheme || "synthwave");
 
     // Apply uniforms with color conversion
     shaderConfig.set({
@@ -242,6 +270,7 @@ export async function persistSettings(): Promise<void> {
 
   const settings: ShaderSettings = {
     selectedShader: shaderName,
+    colorTheme: get(selectedColorTheme),
     uniforms: {
       pitch: anim.basePitch,
       speed: config.uniforms.u_speed as number,

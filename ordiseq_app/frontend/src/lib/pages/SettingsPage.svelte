@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { setShader, setUniforms, exampleShaders, shaderConfig, animationConfig, setAnimationEnabled, setAnimationBase, persistSettings, selectedShaderName } from "../shaderStore";
+  import { setShader, setUniforms, exampleShaders, shaderConfig, animationConfig, setAnimationEnabled, setAnimationBase, persistSettings, selectedShaderName, colorThemes, selectedColorTheme } from "../shaderStore";
   import { loadAlwaysOnTop, saveAlwaysOnTop, loadIconShape, saveIconShape, loadListenPort, saveListenPort } from "../settingsStore";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { invoke } from "@tauri-apps/api/core";
@@ -72,8 +72,14 @@
   let animated = $state(true);
   let color1 = $state("#ff1493");
   let color2 = $state("#00ffde");
-  let color3 = $state("#bd93f9");
-  let color4 = $state("#50fa7b");
+  let color3 = $state("#b794f6");
+  let color4 = $state("#1a1a2e");
+  let colorTheme = $state("synthwave");
+
+  const themeOptions = [
+    ...Object.entries(colorThemes).map(([value, t]) => ({ value, label: t.label })),
+    { value: "custom", label: "Custom" },
+  ];
 
   // Base values for sliders when animated
   let basePitch = $state(0.0);
@@ -125,6 +131,7 @@
     if (config.uniforms.u_color2 !== undefined) color2 = rgbToHex(config.uniforms.u_color2 as number[]);
     if (config.uniforms.u_color3 !== undefined) color3 = rgbToHex(config.uniforms.u_color3 as number[]);
     if (config.uniforms.u_color4 !== undefined) color4 = rgbToHex(config.uniforms.u_color4 as number[]);
+    colorTheme = $selectedColorTheme;
   });
 
   function handleShaderChange(event: Event) {
@@ -206,6 +213,29 @@
     persistSettings();
   }
 
+  function applyColors(c1: string, c2: string, c3: string, c4: string) {
+    color1 = c1; color2 = c2; color3 = c3; color4 = c4;
+    setUniforms({
+      u_color1: hexToRgb(c1),
+      u_color2: hexToRgb(c2),
+      u_color3: hexToRgb(c3),
+      u_color4: hexToRgb(c4),
+    });
+    applyIcon(iconShape, c1);
+  }
+
+  function handleThemeChange(event: Event) {
+    const select = event.target as HTMLSelectElement;
+    const key = select.value;
+    colorTheme = key;
+    selectedColorTheme.set(key);
+    if (key !== "custom") {
+      const theme = colorThemes[key];
+      applyColors(theme.color1, theme.color2, theme.color3, theme.color4);
+    }
+    persistSettings();
+  }
+
   function updateColor(colorNum: number, event: Event) {
     const input = event.target as HTMLInputElement;
     const hex = input.value;
@@ -242,44 +272,64 @@
         />
       </div>
 
-      <div class="color-grid">
-        <div class="color-field">
-          <label for="color1">Color 1</label>
-          <input
-            type="color"
-            id="color1"
-            value={color1}
-            oninput={(e) => updateColor(1, e)}
-          />
-        </div>
-        <div class="color-field">
-          <label for="color2">Color 2</label>
-          <input
-            type="color"
-            id="color2"
-            value={color2}
-            oninput={(e) => updateColor(2, e)}
-          />
-        </div>
-        <div class="color-field">
-          <label for="color3">Color 3</label>
-          <input
-            type="color"
-            id="color3"
-            value={color3}
-            oninput={(e) => updateColor(3, e)}
-          />
-        </div>
-        <div class="color-field">
-          <label for="color4">Color 4</label>
-          <input
-            type="color"
-            id="color4"
-            value={color4}
-            oninput={(e) => updateColor(4, e)}
-          />
-        </div>
+      <div class="field">
+        <label for="colorTheme">Color Theme</label>
+        <select id="colorTheme" value={colorTheme} onchange={handleThemeChange}>
+          {#each themeOptions as option}
+            <option value={option.value}>{option.label}</option>
+          {/each}
+        </select>
       </div>
+
+      {#if colorTheme !== "custom"}
+        <div class="theme-preview">
+          <div class="swatch" style="background: {color1}"></div>
+          <div class="swatch" style="background: {color2}"></div>
+          <div class="swatch" style="background: {color3}"></div>
+          <div class="swatch" style="background: {color4}"></div>
+        </div>
+      {/if}
+
+      {#if colorTheme === "custom"}
+        <div class="color-grid">
+          <div class="color-field">
+            <label for="color1">Color 1</label>
+            <input
+              type="color"
+              id="color1"
+              value={color1}
+              oninput={(e) => updateColor(1, e)}
+            />
+          </div>
+          <div class="color-field">
+            <label for="color2">Color 2</label>
+            <input
+              type="color"
+              id="color2"
+              value={color2}
+              oninput={(e) => updateColor(2, e)}
+            />
+          </div>
+          <div class="color-field">
+            <label for="color3">Color 3</label>
+            <input
+              type="color"
+              id="color3"
+              value={color3}
+              oninput={(e) => updateColor(3, e)}
+            />
+          </div>
+          <div class="color-field">
+            <label for="color4">Color 4</label>
+            <input
+              type="color"
+              id="color4"
+              value={color4}
+              oninput={(e) => updateColor(4, e)}
+            />
+          </div>
+        </div>
+      {/if}
     </div>
 
     <div class="field">
@@ -527,6 +577,19 @@
     border-radius: 50%;
     cursor: pointer;
     border: none;
+  }
+
+  .theme-preview {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+  }
+
+  .swatch {
+    flex: 1;
+    height: 28px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
   }
 
   .color-grid {
