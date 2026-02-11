@@ -207,76 +207,106 @@ float glyph(vec2 cellUV, float seed) {
 }
 
 void main() {
-  float cols = 40.0;
-  float cellW = u_resolution.x / cols;
-  float cellH = cellW * 1.6;
-  float rows = u_resolution.y / cellH;
-
-  vec2 cell = vec2(
-    floor(gl_FragCoord.x / cellW),
-    floor(gl_FragCoord.y / cellH)
-  );
-  vec2 cellUV = vec2(
-    fract(gl_FragCoord.x / cellW),
-    fract(gl_FragCoord.y / cellH)
-  );
-
-  // Each column has its own speed and phase, scaled by BPM
-  float colSeed = hash(vec2(cell.x, 0.0));
   float tempo = u_bpm / 120.0;
-  // Beat-synced time: use beat position when playing, wall-clock otherwise
   float syncTime = mix(u_time, u_beat / tempo, u_playing);
-  float speed = (3.0 + colSeed * 5.0) * tempo;
-  float phase = colSeed * 100.0;
+  float beatPulse = exp(-fract(syncTime * tempo) * 4.0);
 
-  // Stream head position (in row units, moving downward)
-  // Flip y: row 0 is bottom in GL, so invert
-  float invRow = rows - cell.y;
-  float headPos = mod(syncTime * speed + phase, rows + 20.0);
-  float dist = headPos - invRow;
+  // Camera path — smooth cinematic drift through the infinite field
+  float camX = syncTime * 15.0 + sin(syncTime * 0.2) * 60.0;
+  float camY = sin(syncTime * 0.15) * 30.0 + cos(syncTime * 0.1) * 20.0;
+  float angle = sin(syncTime * 0.09) * 0.04; // subtle rotation
 
-  // Stream length varies per column
-  float streamLen = 8.0 + colSeed * 14.0;
+  vec3 totalColor = vec3(0.0);
 
-  // Only render if within the stream trail
-  if (dist < 0.0 || dist > streamLen) {
-    fragColor = vec4(0.0, 0.0, 0.0, 1.0);
-    return;
+  const int NUM_LAYERS = 7;
+  for (int i = 0; i < NUM_LAYERS; i++) {
+    float fi = float(i);
+    float depth = 0.4 + fi * 0.45;
+    float invDepth = 1.0 / depth;
+
+    // Depth fog — closer layers brighter
+    float fog = 1.0 / (1.0 + fi * 0.5);
+
+    // Column density varies by depth (closer = bigger glyphs)
+    float cols = 14.0 + fi * 4.0;
+    float cellW = u_resolution.x / cols;
+    float cellH = cellW * 1.6;
+
+    // Parallax offset — deeper layers drift slower
+    vec2 offset = vec2(camX, camY) * invDepth;
+
+    // Per-layer rotation around screen center
+    float a = angle * invDepth;
+    vec2 centered = gl_FragCoord.xy - u_resolution * 0.5;
+    vec2 rotated = vec2(
+      centered.x * cos(a) - centered.y * sin(a),
+      centered.x * sin(a) + centered.y * cos(a)
+    );
+    vec2 fragPos = rotated + u_resolution * 0.5 + offset;
+
+    // Cell coordinates (work with any sign thanks to floor/fract)
+    vec2 cell = vec2(
+      floor(fragPos.x / cellW),
+      floor(fragPos.y / cellH)
+    );
+    vec2 cellUV = vec2(
+      fract(fragPos.x / cellW),
+      fract(fragPos.y / cellH)
+    );
+
+    // Per-column stream properties
+    float colSeed = hash(vec2(cell.x, fi * 73.13));
+    float speed = (1.5 + colSeed * 2.5) * tempo;
+    float phase = colSeed * 100.0;
+    float streamLen = 4.0 + colSeed * 8.0;
+    float gapLen = 14.0 + colSeed * 20.0;
+    float period = streamLen + gapLen;
+
+    // Periodic stream cycle — tiles seamlessly over infinite scrolling
+    float cyclePos = mod(cell.y + syncTime * speed + phase, period);
+
+    if (cyclePos >= streamLen) {
+      continue;
+    }
+
+    float dist = cyclePos;
+
+    // Glyph character (flickers over time)
+    float charSeed = hash(cell + vec2(fi * 37.0, floor(syncTime * (2.0 + colSeed * 3.0) * tempo)));
+    float g = glyph(cellUV, charSeed);
+
+    // Brightness: head is white-hot, fades along tail
+    float brightness;
+    if (dist < 1.0) {
+      brightness = 1.0;
+    } else {
+      brightness = max(0.05, 1.0 - (dist - 1.0) / (streamLen - 1.0));
+      brightness *= brightness;
+    }
+
+    // Color from user palette, offset per layer
+    int colorIdx = int(mod(cell.x + fi, 4.0));
+    vec3 baseColor;
+    if (colorIdx == 0) baseColor = u_color1;
+    else if (colorIdx == 1) baseColor = u_color2;
+    else if (colorIdx == 2) baseColor = u_color3;
+    else baseColor = u_color4;
+
+    vec3 neon = baseColor * 1.5;
+    vec3 col;
+    if (dist < 1.0) {
+      col = mix(neon, vec3(1.0), 0.7);
+    } else {
+      col = neon * brightness;
+    }
+
+    // Additive blend with depth fade
+    totalColor += col * g * fog;
   }
 
-  // Character changes over time, flicker rate scales with BPM
-  float charSeed = hash(cell + floor(syncTime * (2.0 + colSeed * 3.0) * tempo));
+  // Beat-synced brightness pulse + filmic tone mapping
+  totalColor *= 1.0 + beatPulse * 0.15;
+  totalColor = 1.0 - exp(-totalColor * 1.5);
 
-  float g = glyph(cellUV, charSeed);
-
-  // Brightness: head is brightest, fades along tail
-  float brightness;
-  if (dist < 1.0) {
-    // Head: white-hot
-    brightness = 1.0;
-  } else {
-    brightness = max(0.05, 1.0 - (dist - 1.0) / (streamLen - 1.0));
-    brightness *= brightness; // quadratic falloff
-  }
-
-  // Pick color from the 4 user colors based on column
-  int colorIdx = int(mod(cell.x, 4.0));
-  vec3 baseColor;
-  if (colorIdx == 0) baseColor = u_color1;
-  else if (colorIdx == 1) baseColor = u_color2;
-  else if (colorIdx == 2) baseColor = u_color3;
-  else baseColor = u_color4;
-
-  // Neon boost: saturate and brighten
-  vec3 neon = baseColor * 1.5;
-
-  vec3 col;
-  if (dist < 1.0) {
-    // Head glows white-ish with color tint
-    col = mix(neon, vec3(1.0), 0.7);
-  } else {
-    col = neon * brightness;
-  }
-
-  fragColor = vec4(col * g, 1.0);
+  fragColor = vec4(totalColor, 1.0);
 }
