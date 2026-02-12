@@ -699,16 +699,32 @@ impl Plugin for OrdiseqPlug {
             }
         }
 
-        // Consume incoming MIDI events for note trigger mode
+        // Check if current program has a clip — if not, pass MIDI through
+        let program_idx_early = (self.params.program.value() - 1).max(0) as usize;
+        let has_clip = self.cached_programs
+            .get(program_idx_early)
+            .is_some_and(|c| c.as_ref().is_some_and(|cl| !cl.notes.is_empty() && cl.length_beats > 0.0));
+
+        // Consume incoming MIDI events; pass through when program has no clip
         while let Some(event) = context.next_event() {
             match event {
                 NoteEvent::NoteOn { .. } => {
                     self.held_notes = self.held_notes.saturating_add(1);
+                    if !has_clip {
+                        context.send_event(event);
+                    }
                 }
                 NoteEvent::NoteOff { .. } => {
                     self.held_notes = self.held_notes.saturating_sub(1);
+                    if !has_clip {
+                        context.send_event(event);
+                    }
                 }
-                _ => {}
+                _ => {
+                    if !has_clip {
+                        context.send_event(event);
+                    }
+                }
             }
         }
 
