@@ -222,7 +222,6 @@
 
   function removeRow(clientId: number, index: number) {
     const metas = euclideanRowMetas[clientId] ?? [];
-    if (metas.length <= 1) return;
     euclideanRowMetas[clientId] = metas.filter((_, i) => i !== index);
     syncToClient(clientId);
   }
@@ -299,10 +298,14 @@
   }
 
   async function syncToClient(clientId: number) {
-    const metas = euclideanRowMetas[clientId];
-    if (!metas || metas.length === 0) return;
+    const metas = euclideanRowMetas[clientId] ?? [];
     const pgm = getEditProgram(clientId) - 1; // capture before any await
     persistConfig(clientId);
+    if (metas.length === 0) {
+      sendClipToClient(clientId, { name: "Empty", length_beats: 1, notes: [] }, pgm);
+      midiInfos[clientId] = undefined as any;
+      return;
+    }
     try {
       const clip = euclideanMetaToClip(metas);
       await sendClipToClient(clientId, clip, pgm);
@@ -412,6 +415,112 @@
     delete row.manualPattern;
     const newMetas = [...metas];
     newMetas[rowIndex] = { ...meta, slots: { ...meta.slots, [slot]: row } };
+    euclideanRowMetas[clientId] = newMetas;
+    debouncedSync(clientId);
+  }
+
+  // --- Slot drag-to-copy (custom mouse events, no native drag API) ---
+
+  const DRAG_THRESHOLD = 5; // px before a mousedown becomes a drag
+
+  let slotMouseDown = $state<{ clientId: number; rowIndex: number; letter: string; x: number; y: number } | null>(null);
+  let slotDragging = $state<{ clientId: number; rowIndex: number; letter: string } | null>(null);
+  let slotDragTarget = $state<string | null>(null);
+
+  // Map of slot button elements keyed by "clientId:rowIndex:letter" for hit testing
+  let slotElements = new Map<string, HTMLElement>();
+
+  function slotKey(clientId: number, rowIndex: number, letter: string): string {
+    return `${clientId}:${rowIndex}:${letter}`;
+  }
+
+  function registerSlotEl(el: HTMLElement | null, clientId: number, rowIndex: number, letter: string) {
+    const key = slotKey(clientId, rowIndex, letter);
+    if (el) slotElements.set(key, el);
+    else slotElements.delete(key);
+  }
+
+  /** Svelte action to register a slot button element for hit-testing. */
+  function slotRef(node: HTMLElement, params: { clientId: number; rowIndex: number; letter: string }) {
+    registerSlotEl(node, params.clientId, params.rowIndex, params.letter);
+    return {
+      destroy() {
+        registerSlotEl(null, params.clientId, params.rowIndex, params.letter);
+      }
+    };
+  }
+
+  function onSlotMouseDown(e: MouseEvent, clientId: number, rowIndex: number, letter: string) {
+    if (e.button !== 0) return;
+    slotMouseDown = { clientId, rowIndex, letter, x: e.clientX, y: e.clientY };
+    slotDragging = null;
+    slotDragTarget = null;
+
+    // Attach window-level listeners so we never get stuck
+    window.addEventListener("mousemove", onWindowMouseMove);
+    window.addEventListener("mouseup", onWindowMouseUp);
+  }
+
+  function onWindowMouseMove(e: MouseEvent) {
+    if (!slotMouseDown) { cleanupSlotDrag(); return; }
+
+    // Check if we've exceeded the drag threshold
+    if (!slotDragging) {
+      const dx = e.clientX - slotMouseDown.x;
+      const dy = e.clientY - slotMouseDown.y;
+      if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+      // Start dragging
+      slotDragging = { clientId: slotMouseDown.clientId, rowIndex: slotMouseDown.rowIndex, letter: slotMouseDown.letter };
+    }
+
+    // Hit-test: find which slot button the mouse is over (same row only)
+    const target = findSlotUnderMouse(e.clientX, e.clientY, slotDragging.clientId, slotDragging.rowIndex);
+    slotDragTarget = (target && target !== slotDragging.letter) ? target : null;
+  }
+
+  function onWindowMouseUp(_e: MouseEvent) {
+    if (slotDragging && slotDragTarget) {
+      // Perform the copy
+      copySlot(slotDragging.clientId, slotDragging.rowIndex, slotDragging.letter, slotDragTarget);
+    } else if (slotMouseDown && !slotDragging) {
+      // Was a click, not a drag — select the slot
+      setActiveSlot(slotMouseDown.clientId, slotMouseDown.rowIndex, slotMouseDown.letter);
+    }
+    cleanupSlotDrag();
+  }
+
+  function cleanupSlotDrag() {
+    slotMouseDown = null;
+    slotDragging = null;
+    slotDragTarget = null;
+    window.removeEventListener("mousemove", onWindowMouseMove);
+    window.removeEventListener("mouseup", onWindowMouseUp);
+  }
+
+  function findSlotUnderMouse(x: number, y: number, clientId: number, rowIndex: number): string | null {
+    for (const ch of ALPHABET) {
+      const el = slotElements.get(slotKey(clientId, rowIndex, ch));
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return ch;
+    }
+    return null;
+  }
+
+  function copySlot(clientId: number, rowIndex: number, srcLetter: string, dstLetter: string) {
+    const metas = euclideanRowMetas[clientId];
+    if (!metas) return;
+    const meta = metas[rowIndex];
+    const sourceRow = meta.slots[srcLetter];
+    if (!sourceRow) return;
+
+    const copied: EuclidRow = {
+      ...sourceRow,
+      ...(sourceRow.manualPattern ? { manualPattern: [...sourceRow.manualPattern] } : {}),
+    };
+
+    const newMetas = [...metas];
+    newMetas[rowIndex] = { ...meta, slots: { ...meta.slots, [dstLetter]: copied } };
     euclideanRowMetas[clientId] = newMetas;
     debouncedSync(clientId);
   }
@@ -587,8 +696,9 @@
                   {@const row = activeRow(rowMeta)}
                   {@const manual = isManualMode(row)}
                   {@const pattern = computeStepPattern(row)}
-                  {@const currentStep = $transportPlaying ? getCurrentMetaStep(rowMeta, $beatPosition) : -1}
-                  {@const playingSlot = $transportPlaying ? getPlayingSlot(rowMeta, $beatPosition) : null}
+                  {@const programMatch = client.program === getEditProgram(client.id) - 1}
+                  {@const currentStep = $transportPlaying && programMatch ? getCurrentMetaStep(rowMeta, $beatPosition) : -1}
+                  {@const playingSlot = $transportPlaying && programMatch ? getPlayingSlot(rowMeta, $beatPosition) : null}
                   <div class="euclid-row">
                     <span class="euclid-col note-col dial-col">
                       <Dial value={row.note} min={0} max={127}
@@ -628,9 +738,7 @@
                         onchange={(v) => updateRow(client.id, i, "rotation", v)} />
                     </span>
                     <span class="euclid-col btn-col">
-                      {#if getRowMetas(client.id).length > 1}
-                        <button class="remove-btn" onclick={() => removeRow(client.id, i)}>×</button>
-                      {/if}
+                      <button class="remove-btn" onclick={() => removeRow(client.id, i)}>×</button>
                     </span>
                   </div>
                   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -648,10 +756,12 @@
                       {#each ALPHABET as letter}
                         {@const isEditing = rowMeta.activeSlot === letter}
                         {@const isPlaying = playingSlot === letter}
-                        <!-- svelte-ignore a11y_click_events_have_key_events -->
+                        {@const isDropTarget = slotDragTarget === letter && slotDragging?.clientId === client.id && slotDragging?.rowIndex === i}
+                        {@const isDragSource = slotDragging?.clientId === client.id && slotDragging?.rowIndex === i && slotDragging?.letter === letter}
                         <!-- svelte-ignore a11y_no_static_element_interactions -->
-                        <span class="slot-btn" class:editing={isEditing} class:playing={isPlaying && !isEditing} class:editing-playing={isEditing && isPlaying}
-                          onclick={() => setActiveSlot(client.id, i, letter)}>{letter}</span>
+                        <span class="slot-btn" class:editing={isEditing} class:playing={isPlaying && !isEditing} class:editing-playing={isEditing && isPlaying} class:drop-target={isDropTarget} class:drag-source={isDragSource}
+                          use:slotRef={{ clientId: client.id, rowIndex: i, letter }}
+                          onmousedown={(e) => onSlotMouseDown(e, client.id, i, letter)}>{letter}</span>
                       {/each}
                     </div>
                     <div class="meta-seq-row">
@@ -1053,6 +1163,7 @@
     align-items: center;
     justify-content: center;
     line-height: 1;
+    user-select: none;
   }
 
   .slot-btn:hover {
@@ -1077,6 +1188,17 @@
     border-color: rgb(80, 200, 80);
     color: rgb(var(--color-2));
     box-shadow: 0 0 4px rgba(80, 200, 80, 0.5);
+  }
+
+  .slot-btn.drag-source {
+    opacity: 0.5;
+  }
+
+  .slot-btn.drop-target {
+    background: rgba(var(--color-3), 0.4);
+    border-color: rgb(var(--color-3));
+    color: #fff;
+    box-shadow: 0 0 6px rgba(var(--color-3), 0.6);
   }
 
   .meta-seq-row {
